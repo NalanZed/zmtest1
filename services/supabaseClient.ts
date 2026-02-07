@@ -1,11 +1,12 @@
-
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://kuuglpkaeemrdsortrpu.supabase.co';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'sb_secret_mXzJNldIX9D_9lzSuFWJOw_WjXW4Jra';
+// The URL and Anon Key provided by the user. 
+// Publishable keys (starting with sb_publishable_) are safe for browser use.
+const SUPABASE_URL = 'https://kuuglpkaeemrdsortrpu.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_MPR6Or7hb3M-qDK6HDk8iQ_J5lq5qh9';
 
-if (!SUPABASE_ANON_KEY || SUPABASE_ANON_KEY === '') {
-  console.warn("SUPABASE_ANON_KEY is missing. Database operations will fail.");
-}
+// We use the provided constants as defaults but allow override via process.env if available
+const finalUrl = process.env.SUPABASE_URL || SUPABASE_URL;
+const finalKey = process.env.SUPABASE_ANON_KEY || SUPABASE_ANON_KEY;
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export const supabase = createClient(finalUrl, finalKey);

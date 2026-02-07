@@ -1,6 +1,14 @@
 
 export type Operator = '+' | '-' | '×' | '÷';
 
+export type ItemType = 'number' | 'timer' | 'refresh' | 'score';
+
+export interface StorageItem {
+  id: string;
+  type: ItemType;
+  value?: number;
+}
+
 export interface Cell {
   id: string;
   value: number | Operator;
@@ -11,6 +19,8 @@ export interface Cell {
 export interface Position {
   col: number;
   row: number;
+  source: 'grid' | 'storage';
+  storageIndex?: number;
 }
 
 export interface TargetData {
@@ -19,15 +29,26 @@ export interface TargetData {
   core_base: number;
 }
 
+export interface LevelStartState {
+  grid: Cell[][];
+  storage: (StorageItem | null)[];
+  numbersUsed: number;
+}
+
 export interface GameState {
   grid: Cell[][];
   previewCells: Cell[];
   currentTarget: TargetData;
   nextTarget: TargetData;
-  targetSequenceIndex: number; // 0 to 4
+  totalTargetsCleared: number;
   score: number;
   selectedNum: Position | null;
   selectedOp: Position | null;
   combo: number;
   isGameOver: boolean;
+  isPaused: boolean;
+  numbersUsed: number;
+  totalDraws: number;
+  storage: (StorageItem | null)[];
+  levelStartState: LevelStartState | null;
 }

@@ -51,4 +51,5 @@ export interface GameState {
   totalDraws: number;
   storage: (StorageItem | null)[];
   levelStartState: LevelStartState | null;
+  tutorialStep: number | null; // null means tutorial finished or not started
 }

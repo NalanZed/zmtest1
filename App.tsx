@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Cell, Operator, Position, GameState, TargetData, StorageItem, ItemType, LevelStartState } from './types';
 import { supabase } from './services/supabaseClient';
@@ -9,7 +9,7 @@ const OP_HEIGHT = 4;
 const OPERATORS: Operator[] = ['+', '-', '×', '÷'];
 const GACHA_THRESHOLD = 30;
 const STORAGE_SIZE = 4;
-const TIMER_MULTIPLIER = 18; // Changed from 20 to 18
+const TIMER_MULTIPLIER = 18;
 
 const TARGET_CATALOG: TargetData[] = [
   { value: 24, diff: 0, core_base: 2 }, { value: 26, diff: 0, core_base: 2 }, { value: 48, diff: 0, core_base: 2 },
@@ -29,20 +29,14 @@ const getTargetForAbsoluteIndex = (index: number, totalDraws: number): TargetDat
   const GROUP_LOW = TARGET_CATALOG.filter(t => t.diff <= 2);
   const GROUP_MED = TARGET_CATALOG.filter(t => t.diff === 3);
   const GROUP_HIGH = TARGET_CATALOG.filter(t => t.diff === 4);
-
-  // Initial warmup targets
   if (index < 3) return GROUP_WARMUP[Math.floor(Math.random() * GROUP_WARMUP.length)];
-  
   const relativeIdx = index - 3;
-  
   if (totalDraws < 2) {
-    // 5 targets per set: 3 low, 1 med, 1 high
     const cycleIdx = relativeIdx % 5;
     if (cycleIdx < 3) return GROUP_LOW[Math.floor(Math.random() * GROUP_LOW.length)];
     if (cycleIdx === 3) return GROUP_MED[Math.floor(Math.random() * GROUP_MED.length)];
     return GROUP_HIGH[Math.floor(Math.random() * GROUP_HIGH.length)];
   } else {
-    // 4 targets per set: 2 low, 1 med, 1 high
     const cycleIdx = relativeIdx % 4;
     if (cycleIdx < 2) return GROUP_LOW[Math.floor(Math.random() * GROUP_LOW.length)];
     if (cycleIdx === 2) return GROUP_MED[Math.floor(Math.random() * GROUP_MED.length)];
@@ -50,28 +44,23 @@ const getTargetForAbsoluteIndex = (index: number, totalDraws: number): TargetDat
   }
 };
 
-const getDiffInfo = (diff: number) => {
-  if (diff === 3) return { label: 'HARD', color: 'text-orange-500', bg: 'bg-orange-100/50', border: 'border-orange-200' };
-  if (diff === 4) return { label: 'EXPERT', color: 'text-rose-500', bg: 'bg-rose-100/50', border: 'border-rose-200' };
-  return null;
-};
-
 const generateRandomId = () => Math.random().toString(36).substr(2, 9);
 
-const createCell = (type: 'number' | 'operator'): Cell => {
-  if (type === 'number') {
-    return { id: generateRandomId(), value: Math.floor(Math.random() * 9) + 1, type: 'number' };
-  } else {
-    return { id: generateRandomId(), value: OPERATORS[Math.floor(Math.random() * OPERATORS.length)], type: 'operator' };
-  }
-};
+const createCell = (type: 'number' | 'operator', value?: number | Operator): Cell => ({
+  id: generateRandomId(),
+  value: value !== undefined ? value : (type === 'number' ? Math.floor(Math.random() * 9) + 1 : OPERATORS[Math.floor(Math.random() * OPERATORS.length)]),
+  type
+});
 
-const generateInitialGrid = (): Cell[][] => {
-  const grid: Cell[][] = [];
-  grid[0] = Array.from({ length: NUM_HEIGHT }, () => createCell('number'));
-  grid[1] = OPERATORS.map(op => ({ id: `fixed-${op}`, value: op, type: 'operator' }));
-  grid[2] = Array.from({ length: NUM_HEIGHT }, () => createCell('number'));
-  return grid;
+const getDiffInfo = (diff: number) => {
+  const diffMap: Record<number, { label: string; color: string; bg: string; border: string }> = {
+    0: { label: 'EASY', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
+    1: { label: 'NORMAL', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
+    2: { label: 'HARD', color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-100' },
+    3: { label: 'EXPERT', color: 'text-rose-600', bg: 'bg-rose-50', border: 'border-rose-100' },
+    4: { label: 'MASTER', color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-100' },
+  };
+  return diffMap[diff] || null;
 };
 
 const App: React.FC = () => {
@@ -79,37 +68,30 @@ const App: React.FC = () => {
   const [message, setMessage] = useState<string | null>(null);
   const [isSynthesizing, setIsSynthesizing] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
-  const [showRules, setShowRules] = useState(false);
-  const [rulesLang, setRulesLang] = useState<'zh' | 'en'>('zh');
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [username, setUsername] = useState('');
-  
-  // Gacha System State
   const [isGachaModalOpen, setIsGachaModalOpen] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawResult, setDrawResult] = useState<StorageItem | null>(null);
-
-  // Timer State
   const [timeLeft, setTimeLeft] = useState(0);
   const [maxTime, setMaxTime] = useState(0);
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    resetGame();
-    fetchLeaderboard();
     const hasVisited = localStorage.getItem('quest_visited');
-    if (!hasVisited) {
-      setShowRules(true);
-      localStorage.setItem('quest_visited', 'true');
-    }
+    if (!hasVisited) startTutorial();
+    else resetGame();
+    fetchLeaderboard();
   }, []);
 
+  // Timer logic
   useEffect(() => {
-    if (gameState && !gameState.isGameOver && !gameState.isPaused && !isSynthesizing && !showRules && !showLeaderboard && !isGachaModalOpen) {
+    if (gameState && !gameState.isGameOver && !gameState.isPaused && !isSynthesizing && !showLeaderboard && !isGachaModalOpen && gameState.tutorialStep === null) {
       timerRef.current = window.setInterval(() => {
         setTimeLeft(prev => {
-          if (prev <= 0) {
+          if (prev <= 0.1) {
             setGameState(g => g ? { ...g, isGameOver: true } : null);
+            if (timerRef.current) clearInterval(timerRef.current);
             return 0;
           }
           return prev - 0.1;
@@ -119,172 +101,113 @@ const App: React.FC = () => {
       if (timerRef.current) clearInterval(timerRef.current);
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [gameState?.isGameOver, gameState?.isPaused, isSynthesizing, showRules, showLeaderboard, isGachaModalOpen]);
+  }, [gameState?.isGameOver, gameState?.isPaused, isSynthesizing, showLeaderboard, isGachaModalOpen, gameState?.tutorialStep]);
 
+  // Gacha trigger logic
   useEffect(() => {
-    if (gameState && gameState.numbersUsed >= GACHA_THRESHOLD && !isGachaModalOpen) {
-      const hasRoom = gameState.storage.some(s => s === null);
-      if (hasRoom) {
+    if (gameState && gameState.numbersUsed >= GACHA_THRESHOLD && !isGachaModalOpen && gameState.tutorialStep === null) {
+      if (gameState.storage.some(s => s === null)) {
         setIsGachaModalOpen(true);
       }
     }
-  }, [gameState?.numbersUsed]);
+  }, [gameState?.numbersUsed, isGachaModalOpen, gameState?.tutorialStep]);
+
+  const startTutorial = () => {
+    const grid: Cell[][] = [
+      [createCell('number', 3), createCell('number', 1), createCell('number', 6)],
+      OPERATORS.map(op => createCell('operator', op)),
+      [createCell('number', 9), createCell('number', 3), createCell('number', 6)]
+    ];
+    const initialTarget = { value: 24, diff: 0, core_base: 2 };
+    setGameState({
+      grid,
+      previewCells: [createCell('number'), createCell('number'), createCell('number')],
+      currentTarget: initialTarget,
+      nextTarget: { value: 12, diff: 0, core_base: 2 },
+      totalTargetsCleared: 0, score: 0, selectedNum: null, selectedOp: null, combo: 0,
+      isGameOver: false, isPaused: false, numbersUsed: 0, totalDraws: 0, storage: Array(STORAGE_SIZE).fill(null),
+      levelStartState: null, tutorialStep: 0
+    });
+    setTimeLeft(100); setMaxTime(100);
+  };
+
+  const nextTutorialStep = () => {
+    setGameState(prev => {
+      if (!prev || prev.tutorialStep === null) return prev;
+      if (prev.tutorialStep < 3) return { ...prev, tutorialStep: prev.tutorialStep + 1 };
+      if (prev.tutorialStep === 3) return { ...prev, tutorialStep: 4 };
+      return prev;
+    });
+  };
 
   const fetchLeaderboard = async () => {
     try {
       const { data, error } = await supabase.from('high_scores').select('*').order('score', { ascending: false }).limit(10);
       if (!error && data) setLeaderboard(data);
-    } catch (e) { console.error("Leaderboard fetch failed", e); }
-  };
-
-  const saveScore = async () => {
-    if (!gameState || !username.trim() || gameState.score === 0) return;
-    try {
-      const { error } = await supabase.from('high_scores').insert([{ username, score: gameState.score }]);
-      if (!error) {
-        setMessage(rulesLang === 'zh' ? "分数保存成功！" : "Score saved successfully!");
-        fetchLeaderboard();
-        resetGame();
-        setUsername('');
-      }
-    } catch (e) { console.error("Score save failed", e); }
+    } catch (e) { console.error(e); }
   };
 
   const resetGame = () => {
     const firstTarget = getTargetForAbsoluteIndex(0, 0);
     const initialDuration = firstTarget.core_base * TIMER_MULTIPLIER;
-    const initialGrid = generateInitialGrid();
-    const initialStorage = Array(STORAGE_SIZE).fill(null);
-
+    const initialGrid = [
+      Array.from({ length: NUM_HEIGHT }, () => createCell('number')),
+      OPERATORS.map(op => createCell('operator', op)),
+      Array.from({ length: NUM_HEIGHT }, () => createCell('number'))
+    ];
     setGameState({
-      grid: initialGrid,
-      previewCells: [createCell('number'), createCell('number'), createCell('number')],
-      currentTarget: firstTarget,
-      nextTarget: getTargetForAbsoluteIndex(1, 0),
-      totalTargetsCleared: 0,
-      score: 0,
-      selectedNum: null,
-      selectedOp: null,
-      combo: 0,
-      isGameOver: false,
-      isPaused: false,
-      numbersUsed: 0,
-      totalDraws: 0,
-      storage: initialStorage,
-      levelStartState: {
-        grid: JSON.parse(JSON.stringify(initialGrid)),
-        storage: JSON.parse(JSON.stringify(initialStorage)),
-        numbersUsed: 0
-      }
+      grid: initialGrid, previewCells: [createCell('number'), createCell('number'), createCell('number')],
+      currentTarget: firstTarget, nextTarget: getTargetForAbsoluteIndex(1, 0),
+      totalTargetsCleared: 0, score: 0, selectedNum: null, selectedOp: null, combo: 0,
+      isGameOver: false, isPaused: false, numbersUsed: 0, totalDraws: 0, storage: Array(STORAGE_SIZE).fill(null),
+      levelStartState: { grid: JSON.parse(JSON.stringify(initialGrid)), storage: Array(STORAGE_SIZE).fill(null), numbersUsed: 0 },
+      tutorialStep: null
     });
-    setTimeLeft(initialDuration);
-    setMaxTime(initialDuration);
-  };
-
-  const handlePause = () => {
-    setGameState(prev => prev ? ({ ...prev, isPaused: !prev.isPaused }) : null);
-  };
-
-  const handleResetLevel = () => {
-    setGameState(prev => {
-      if (!prev || !prev.levelStartState) return prev;
-      const { grid, storage, numbersUsed } = prev.levelStartState;
-      return {
-        ...prev,
-        grid: JSON.parse(JSON.stringify(grid)),
-        storage: JSON.parse(JSON.stringify(storage)),
-        numbersUsed: numbersUsed,
-        selectedNum: null,
-        selectedOp: null
-      };
-    });
-    setMessage(rulesLang === 'zh' ? "已重置本关" : "Level Reset");
+    setTimeLeft(initialDuration); setMaxTime(initialDuration);
   };
 
   const handleCellClick = (col: number, row: number) => {
     if (!gameState || isSynthesizing || gameState.isGameOver || gameState.isPaused) return;
+    
+    if (gameState.tutorialStep !== null) {
+      if (gameState.tutorialStep < 4) return;
+      const expected = [
+        { c: 0, r: 0 }, // Step 4: Click 3
+        { c: 1, r: 0 }, // Step 5: Click +
+        { c: 0, r: 1 }, // Step 6: Click 1
+        { c: 0, r: 1 }, // Step 7: Click 4 (deselect)
+        { c: 0, r: 1 }, // Step 8: Click 4 (re-select)
+        { c: 1, r: 2 }, // Step 9: Click x
+        { c: 2, r: 2 }  // Step 10: Click 6
+      ];
+      const curIdx = gameState.tutorialStep - 4;
+      if (curIdx >= expected.length || col !== expected[curIdx].c || row !== expected[curIdx].r) return;
+    }
+
     const cell = gameState.grid[col][row];
     if (!cell) return;
-
     if (cell.type === 'number') {
       if (gameState.selectedNum?.col === col && gameState.selectedNum?.row === row && gameState.selectedNum.source === 'grid') {
-        setGameState(prev => prev ? ({ ...prev, selectedNum: null, selectedOp: null }) : null);
+        setGameState(prev => prev ? ({ ...prev, selectedNum: null, selectedOp: null, tutorialStep: prev.tutorialStep !== null ? prev.tutorialStep + 1 : null }) : null);
         return;
       }
       if (gameState.selectedNum && gameState.selectedOp) {
         performSynthesis(gameState.selectedNum, gameState.selectedOp, { col, row, source: 'grid' });
         return;
       }
-      setGameState(prev => prev ? ({ ...prev, selectedNum: { col, row, source: 'grid' } }) : null);
+      setGameState(prev => prev ? ({ ...prev, selectedNum: { col, row, source: 'grid' }, tutorialStep: prev.tutorialStep !== null ? prev.tutorialStep + 1 : null }) : null);
     } else {
       if (!gameState.selectedNum) return;
-      if (gameState.selectedOp?.col === col && gameState.selectedOp?.row === row) {
-        setGameState(prev => prev ? ({ ...prev, selectedOp: null }) : null);
-      } else {
-        setGameState(prev => prev ? ({ ...prev, selectedOp: { col, row, source: 'grid' } }) : null);
-      }
+      setGameState(prev => prev ? ({ ...prev, selectedOp: { col, row, source: 'grid' }, tutorialStep: prev.tutorialStep !== null ? prev.tutorialStep + 1 : null }) : null);
     }
-  };
-
-  const handleStorageClick = (index: number) => {
-    if (!gameState || isSynthesizing || gameState.isGameOver || gameState.isPaused) return;
-    const item = gameState.storage[index];
-    if (!item) return;
-
-    if (item.type === 'number') {
-      if (gameState.selectedNum?.source === 'storage' && gameState.selectedNum?.storageIndex === index) {
-        setGameState(prev => prev ? ({ ...prev, selectedNum: null, selectedOp: null }) : null);
-        return;
-      }
-      if (gameState.selectedNum && gameState.selectedOp) {
-        performSynthesis(gameState.selectedNum, gameState.selectedOp, { col: -1, row: -1, source: 'storage', storageIndex: index });
-        return;
-      }
-      setGameState(prev => prev ? ({ ...prev, selectedNum: { col: -1, row: -1, source: 'storage', storageIndex: index } }) : null);
-    } else if (item.type === 'timer') {
-      setTimeLeft(prev => Math.min(prev + 30, maxTime + 30));
-      setMaxTime(prev => prev + 30);
-      consumeStorageItem(index);
-      setMessage(rulesLang === 'zh' ? "时间 +30s" : "Time +30s");
-    } else if (item.type === 'refresh') {
-      refreshGrid();
-      consumeStorageItem(index);
-      setMessage(rulesLang === 'zh' ? "刷新成功" : "Refreshed");
-    }
-  };
-
-  const consumeStorageItem = (index: number) => {
-    setGameState(prev => {
-      if (!prev) return null;
-      const newStorage = [...prev.storage];
-      newStorage[index] = null;
-      return { ...prev, storage: newStorage };
-    });
-  };
-
-  const refreshGrid = () => {
-    setGameState(prev => {
-      if (!prev) return null;
-      const newGrid = [...prev.grid];
-      newGrid[0] = Array.from({ length: NUM_HEIGHT }, () => createCell('number'));
-      newGrid[2] = Array.from({ length: NUM_HEIGHT }, () => createCell('number'));
-      return { ...prev, grid: newGrid, selectedNum: null, selectedOp: null };
-    });
   };
 
   const performSynthesis = (numPos1: Position, opPos: Position, numPos2: Position) => {
     if (!gameState) return;
     setIsSynthesizing(true);
-    
-    const getVal = (p: Position) => {
-      if (p.source === 'grid') return gameState.grid[p.col][p.row].value as number;
-      return gameState.storage[p.storageIndex!]?.value as number;
-    };
-
-    const v1 = getVal(numPos1);
-    const v2 = getVal(numPos2);
+    const getVal = (p: Position) => p.source === 'grid' ? gameState.grid[p.col][p.row].value as number : gameState.storage[p.storageIndex!]?.value as number;
+    const v1 = getVal(numPos1); const v2 = getVal(numPos2);
     const op = gameState.grid[opPos.col][opPos.row].value as Operator;
-
     let result = 0;
     switch (op) {
       case '+': result = v1 + v2; break;
@@ -292,14 +215,7 @@ const App: React.FC = () => {
       case '×': result = v1 * v2; break;
       case '÷': result = v2 !== 0 ? Math.floor(v1 / v2) : 0; break;
     }
-
-    if (result < 0) {
-      setMessage(rulesLang === 'zh' ? "结果不能为负数" : "Result cannot be negative");
-      setGameState(prev => prev ? ({ ...prev, selectedNum: null, selectedOp: null }) : null);
-      setIsSynthesizing(false);
-      return;
-    }
-
+    
     setTimeout(() => {
       setGameState(prev => {
         if (!prev) return null;
@@ -307,42 +223,39 @@ const App: React.FC = () => {
         let newStorage = [...prev.storage];
         const isMatch = result === prev.currentTarget.value;
         const resultId = generateRandomId();
+        
+        // Remove sources
+        if (numPos1.source === 'grid') newGrid[numPos1.col][numPos1.row] = null as any;
+        else newStorage[numPos1.storageIndex!] = null;
 
-        if (numPos1.source === 'grid') { // @ts-ignore
-          newGrid[numPos1.col][numPos1.row] = null;
-        } else { newStorage[numPos1.storageIndex!] = null; }
-
-        if (numPos2.source === 'grid') { // @ts-ignore
-          if (isMatch) newGrid[numPos2.col][numPos2.row] = null;
+        if (numPos2.source === 'grid') {
+          if (isMatch) newGrid[numPos2.col][numPos2.row] = null as any;
           else newGrid[numPos2.col][numPos2.row] = { ...newGrid[numPos2.col][numPos2.row], value: result, id: resultId };
         } else {
-           newStorage[numPos2.storageIndex!] = null;
-           if (!isMatch) {
-             newStorage[numPos2.storageIndex!] = { id: resultId, type: 'number', value: result };
-           }
+          newStorage[numPos2.storageIndex!] = null;
+          if (!isMatch) newStorage[numPos2.storageIndex!] = { id: resultId, type: 'number', value: result };
         }
-
+        
         let processedGrid = newGrid.map((col, idx) => idx === 1 ? col : col.filter(cell => cell !== null));
-        let totalTargetsCleared = prev.totalTargetsCleared;
-        let currentTarget = prev.currentTarget;
-        let nextTarget = prev.nextTarget;
-        let score = prev.score;
-        let combo = prev.combo;
-        let isGameOver = false;
-        let numbersUsed = prev.numbersUsed + 2;
-        let levelStartState = prev.levelStartState;
-
+        let { totalTargetsCleared, currentTarget, nextTarget, score, combo, numbersUsed, totalDraws } = prev;
+        numbersUsed += 2;
+        
         if (isMatch) {
           score += (prev.currentTarget.core_base * 50) + (combo * 20);
-          combo += 1;
-          totalTargetsCleared += 1;
+          combo += 1; totalTargetsCleared += 1;
           
-          currentTarget = nextTarget;
-          nextTarget = getTargetForAbsoluteIndex(totalTargetsCleared + 1, prev.totalDraws);
+          if (prev.tutorialStep !== null) {
+            setMessage("恭喜你学会了游戏规则，继续后面的游戏吧");
+            setTimeout(() => { 
+              localStorage.setItem('quest_visited', 'true');
+              resetGame(); 
+            }, 2300);
+            return { ...prev, tutorialStep: null };
+          }
           
+          currentTarget = nextTarget; nextTarget = getTargetForAbsoluteIndex(totalTargetsCleared + 1, totalDraws);
           const newDuration = currentTarget.core_base * TIMER_MULTIPLIER;
           setTimeLeft(newDuration); setMaxTime(newDuration);
-
           processedGrid = processedGrid.map((col, colIdx) => {
             if (colIdx === 1) return col;
             const filled = [...col];
@@ -350,244 +263,335 @@ const App: React.FC = () => {
             while (filled.length < NUM_HEIGHT) filled.unshift(createCell('number'));
             return filled;
           });
-
-          levelStartState = {
-            grid: JSON.parse(JSON.stringify(processedGrid)),
-            storage: JSON.parse(JSON.stringify(newStorage)),
-            numbersUsed: numbersUsed
-          };
         } else {
-          const numberCount = processedGrid[0].length + processedGrid[2].length + newStorage.filter(s => s?.type === 'number').length;
-          if (numberCount < 2) isGameOver = true;
           processedGrid = processedGrid.map((col, colIdx) => {
              const h = colIdx === 1 ? OP_HEIGHT : NUM_HEIGHT;
-             const padded = [...col];
-             while (padded.length < h) padded.unshift(null as any);
+             const padded = [...col]; while (padded.length < h) padded.unshift(null as any);
              return padded;
           });
         }
-
+        
         let newSelectedNum: Position | null = null;
-        if (!isMatch && !isGameOver) {
+        if (!isMatch) {
+           // Stuck check: If total synthesisable numbers < 2, it's game over
+           const gridNumsCount = processedGrid.reduce((acc, col) => acc + col.filter(c => c?.type === 'number').length, 0);
+           const storageNumsCount = newStorage.filter(s => s?.type === 'number').length;
+           if (gridNumsCount + storageNumsCount < 2) {
+             setTimeout(() => setGameState(s => s ? { ...s, isGameOver: true } : null), 1200);
+           }
+
           if (numPos2.source === 'grid') {
-            const rowIdx = processedGrid[numPos2.col].findIndex(cell => cell?.id === resultId);
-            if (rowIdx !== -1) newSelectedNum = { col: numPos2.col, row: rowIdx, source: 'grid' };
+            const rIdx = processedGrid[numPos2.col].findIndex(cell => cell?.id === resultId);
+            if (rIdx !== -1) newSelectedNum = { col: numPos2.col, row: rIdx, source: 'grid' };
           } else {
             newSelectedNum = { col: -1, row: -1, source: 'storage', storageIndex: numPos2.storageIndex };
           }
         }
 
-        return { ...prev, grid: processedGrid, storage: newStorage, selectedNum: newSelectedNum, selectedOp: null, score, combo, currentTarget, nextTarget, totalTargetsCleared, numbersUsed, isGameOver, levelStartState };
+        // Checkpoint the level start state whenever a target is cleared
+        const levelStartState = isMatch 
+          ? { grid: JSON.parse(JSON.stringify(processedGrid)), storage: JSON.parse(JSON.stringify(newStorage)), numbersUsed } 
+          : prev.levelStartState;
+        
+        return { 
+          ...prev, 
+          grid: processedGrid, 
+          storage: newStorage,
+          selectedNum: newSelectedNum, 
+          selectedOp: null, 
+          score, combo, 
+          currentTarget, nextTarget, 
+          totalTargetsCleared, 
+          numbersUsed, 
+          levelStartState,
+          tutorialStep: prev.tutorialStep !== null ? prev.tutorialStep + 1 : null 
+        };
       });
       setIsSynthesizing(false);
     }, 400);
   };
 
-  const triggerDraw = () => {
-    setIsDrawing(true);
-    const pool: ItemType[] = ['score', 'number', 'timer', 'refresh'];
-    const type = pool[Math.floor(Math.random() * pool.length)];
-    
-    setTimeout(() => {
-      let result: StorageItem;
-      if (type === 'score') {
-        result = { id: generateRandomId(), type: 'score' };
-        setGameState(prev => prev ? ({ ...prev, score: prev.score + 500, numbersUsed: 0, totalDraws: prev.totalDraws + 1 }) : null);
-        setMessage("+500 Score!");
-      } else {
-        result = { id: generateRandomId(), type, value: type === 'number' ? Math.floor(Math.random() * 9) + 1 : undefined };
-        setGameState(prev => {
-          if (!prev) return null;
-          const newStorage = [...prev.storage];
-          const emptyIdx = newStorage.indexOf(null);
-          if (emptyIdx !== -1) newStorage[emptyIdx] = result;
-          return { ...prev, storage: newStorage, numbersUsed: 0, totalDraws: prev.totalDraws + 1 };
-        });
-      }
-      setDrawResult(result);
-      setIsDrawing(false);
-    }, 1500);
+  const getTutorialHintText = () => {
+    switch(gameState?.tutorialStep) {
+      case 0: return "嘿！欢迎来到数合挑战！这是你的目标数字，你需要用棋盘上的数算出它。";
+      case 1: return "这里预告了下一个挑战目标，高手都会提前做好计算规划哦！";
+      case 2: return "看到这个时间条了吗？它走完前必须达成目标，动作要快！";
+      case 3: return "这就是你的主战场！通过点击数字和符号，把它们合二为一。";
+      case 4: return "第一步：咱们先选中左边这个 3。";
+      case 5: return "第二步：点击加号 +，准备给它加点料。";
+      case 6: return "第三步：点击这个 1。看！3 和 1 合成了 4。";
+      case 7: return "瞧！它们变成了 4。现在它是选中状态，点击它可以取消选中。";
+      case 8: return "我们要算出 24，还差一个 4×6。现在重新选上这个 4 吧！";
+      case 9: return "接下来，点击乘号 ×。";
+      case 10: return "最后点击 6。4 × 6 = 24！刚好匹配我们的目标，简直完美！";
+      default: return "";
+    }
   };
 
+  // Extracting Tutorial View for cleaner logic
+  const TutorialView = () => {
+    if (gameState?.tutorialStep === null) return null;
+    
+    return (
+      <AnimatePresence>
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }} 
+          animate={{ opacity: 1, scale: 1 }} 
+          exit={{ opacity: 0, scale: 0.9 }} 
+          className={`absolute inset-0 z-[1100] flex items-center justify-center p-4 pointer-events-none`}
+        >
+          <div className="bg-white rounded-[28px] p-6 ios-shadow border border-gray-100 text-center w-full h-full flex flex-col justify-center pointer-events-auto max-h-[160px]">
+            <h3 className="text-lg font-black text-gray-900 mb-1">
+              {gameState!.tutorialStep! < 4 ? "游戏教程" : "跟我来操作"}
+            </h3>
+            <p className="text-gray-600 leading-snug text-xs font-medium mb-4">
+              {getTutorialHintText()}
+            </p>
+            {gameState!.tutorialStep! < 4 ? (
+              <button onClick={nextTutorialStep} className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm active:scale-95 transition-all shadow-lg shadow-blue-500/20">我知道了，下一步</button>
+            ) : (
+              <div className="flex items-center justify-center gap-2 text-blue-600 font-bold animate-bounce text-xs">
+                <i className="fas fa-hand-pointer"></i>
+                <span>点击下方闪烁块</span>
+              </div>
+            )}
+          </div>
+        </motion.div>
+      </AnimatePresence>
+    );
+  };
+
+  const drawProgress = useMemo(() => {
+    if (!gameState) return 0;
+    return Math.min(100, (gameState.numbersUsed / GACHA_THRESHOLD) * 100);
+  }, [gameState?.numbersUsed]);
+
+  const currentDiff = useMemo(() => {
+    if (!gameState) return null;
+    return getDiffInfo(gameState.currentTarget.diff);
+  }, [gameState?.currentTarget.diff]);
+
   if (!gameState) return null;
-  const currentDiff = getDiffInfo(gameState.currentTarget.diff);
-  const nextDiff = getDiffInfo(gameState.nextTarget.diff);
-  const drawProgress = Math.min(100, (gameState.numbersUsed / GACHA_THRESHOLD) * 100);
-  const isStorageFull = gameState.storage.every(s => s !== null);
+
+  const timerWidth = (timeLeft / maxTime) * 100;
 
   return (
     <div className="h-dvh flex flex-col items-center bg-[#f2f2f7] text-black px-4 pt-4 pb-12 overflow-hidden relative selection:bg-blue-500/20 safe-top safe-bottom">
       
-      {/* iOS Style HUD */}
-      <div className="w-full max-w-md flex justify-between items-center mb-2 px-2 shrink-0">
+      {/* Background Dim for Tutorial */}
+      <AnimatePresence>
+        {gameState.tutorialStep !== null && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[900] bg-black/70 pointer-events-none" />
+        )}
+      </AnimatePresence>
+
+      {/* HUD */}
+      <div className={`w-full max-w-md flex justify-between items-center mb-2 px-2 shrink-0 ${gameState.tutorialStep !== null ? 'z-[1002]' : ''}`}>
         <div className="flex flex-col">
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">{rulesLang === 'zh' ? '当前得分' : 'Score'}</span>
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">当前得分</span>
           <span className="text-2xl font-bold tracking-tight">{gameState.score}</span>
         </div>
         <div className="flex gap-2">
-          <button onClick={handlePause} className="w-10 h-10 flex items-center justify-center rounded-full bg-white ios-shadow active:scale-90 transition-all text-blue-500">
+          <button onClick={() => setGameState(p => p ? ({ ...p, isPaused: !p.isPaused }) : null)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white ios-shadow active:scale-90 transition-all text-blue-500">
             <i className={`fas ${gameState.isPaused ? 'fa-play' : 'fa-pause'} text-base`}></i>
           </button>
           <button onClick={() => setShowLeaderboard(true)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white ios-shadow active:scale-90 transition-all text-blue-600"><i className="fas fa-trophy text-base"></i></button>
+          <button onClick={startTutorial} className="w-10 h-10 flex items-center justify-center rounded-full bg-white ios-shadow active:scale-90 transition-all text-emerald-500" title="帮助/教程"><i className="fas fa-book-open text-base"></i></button>
           <button onClick={resetGame} className="w-10 h-10 flex items-center justify-center rounded-full bg-white ios-shadow active:scale-90 transition-all text-gray-400"><i className="fas fa-arrow-rotate-left text-base"></i></button>
         </div>
       </div>
 
-      {/* Target Card */}
-      <motion.div layout className="w-full max-w-md bg-white/70 ios-blur ios-shadow rounded-[24px] pt-4 pb-3 px-4 mb-4 flex flex-col items-center border border-white/50 relative overflow-hidden shrink-0">
-        <div className="flex flex-col items-center">
-          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.3em] mb-1">Target</div>
-          <motion.div key={gameState.currentTarget.value} initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className={`text-6xl font-black tracking-tighter ${currentDiff ? currentDiff.color : 'text-blue-600'}`}>{gameState.currentTarget.value}</motion.div>
-          <AnimatePresence mode="wait">{currentDiff && <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className={`mt-1 px-3 py-0.5 rounded-full text-[9px] font-black tracking-widest border ${currentDiff.bg} ${currentDiff.color} ${currentDiff.border}`}>{currentDiff.label}</motion.div>}</AnimatePresence>
-        </div>
-        <div className="mt-3 flex items-center gap-2 mb-3">
-          <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">Next:</span>
-          <span className={`text-[11px] font-bold px-3 py-0.5 rounded-full ${nextDiff ? `${nextDiff.bg} ${nextDiff.color}` : 'text-gray-500 bg-gray-100/50'}`}>{gameState.nextTarget.value}</span>
-        </div>
-        <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden relative">
-          <motion.div className={`absolute inset-y-0 left-0 transition-colors duration-500 ${(timeLeft/maxTime)*100 < 25 ? 'bg-rose-500' : (timeLeft/maxTime)*100 < 50 ? 'bg-orange-400' : 'bg-blue-500'}`} initial={{ width: '100%' }} animate={{ width: `${(timeLeft / maxTime) * 100}%` }} transition={{ duration: 0.1, ease: 'linear' }} />
-        </div>
-      </motion.div>
+      {/* Target Area Container */}
+      <div className="w-full max-w-md relative mb-4 shrink-0 h-[170px]">
+        <motion.div layout id="target-card" className={`absolute inset-0 bg-white/70 ios-blur ios-shadow rounded-[24px] pt-4 pb-3 px-4 flex flex-col items-center border border-white/50 overflow-hidden transition-all duration-300 ${gameState.tutorialStep !== null && gameState.tutorialStep < 3 ? 'z-[1001] !bg-white scale-105 ring-4 ring-blue-400 shadow-2xl' : ''}`}>
+          <div className={`flex flex-col items-center transition-all ${gameState.tutorialStep === 0 ? 'scale-110' : ''}`}>
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.3em] mb-1">Target</div>
+            <motion.div key={gameState.currentTarget.value} initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className={`text-5xl font-black tracking-tighter ${currentDiff ? currentDiff.color : 'text-blue-600'}`}>{gameState.currentTarget.value}</motion.div>
+            <AnimatePresence mode="wait">{currentDiff && <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className={`mt-1 px-3 py-0.5 rounded-full text-[9px] font-black tracking-widest border ${currentDiff.bg} ${currentDiff.color} ${currentDiff.border}`}>{currentDiff.label}</motion.div>}</AnimatePresence>
+          </div>
+          <div className={`mt-2 flex items-center gap-2 mb-3 rounded-full px-4 py-1.5 transition-all ${gameState.tutorialStep === 1 ? 'bg-blue-600 !text-white ring-4 ring-blue-300 scale-105' : 'text-gray-400 bg-gray-100/50'}`}>
+            <span className={`text-[10px] font-bold uppercase tracking-widest ${gameState.tutorialStep === 1 ? 'text-blue-100' : 'text-gray-300'}`}>Next:</span>
+            <span className="text-[12px] font-bold">{gameState.nextTarget.value}</span>
+          </div>
+          <div className={`w-full h-1.5 bg-gray-100 rounded-full overflow-hidden relative transition-all ${gameState.tutorialStep === 2 ? 'ring-4 ring-blue-300 scale-y-125' : ''}`}>
+            {/* Countdown bar - Removed slow transitions for snappy refills */}
+            <div 
+              className="absolute inset-y-0 left-0 bg-blue-600" 
+              style={{ 
+                width: `${timerWidth}%`, 
+                backgroundColor: timerWidth < 30 ? '#ef4444' : '#2563eb',
+                transition: timerWidth > 98 ? 'none' : 'width 0.15s linear' 
+              }} 
+            />
+          </div>
+        </motion.div>
+        
+        {gameState.tutorialStep !== null && gameState.tutorialStep >= 3 && <TutorialView />}
+      </div>
 
-      {/* Main Grid Controls */}
-      <div className="w-full max-w-md flex justify-end mb-2 px-1">
-        <button onClick={handleResetLevel} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/50 ios-shadow text-[11px] font-bold text-gray-500 active:scale-95 transition-all">
-          <i className="fas fa-undo"></i>
-          {rulesLang === 'zh' ? '重置本关' : 'Reset Level'}
+      {/* Grid Controls Area */}
+      <div className={`w-full max-w-md flex justify-end mb-1 px-1 shrink-0 ${gameState.tutorialStep !== null ? 'invisible' : ''}`}>
+        <button onClick={() => setGameState(p => {
+          if (!p || !p.levelStartState) return p;
+          setTimeLeft(p.currentTarget.core_base * TIMER_MULTIPLIER);
+          return { ...p, grid: JSON.parse(JSON.stringify(p.levelStartState.grid)), storage: JSON.parse(JSON.stringify(p.levelStartState.storage)), numbersUsed: p.levelStartState.numbersUsed, selectedNum: null, selectedOp: null };
+        })} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/50 ios-shadow text-[11px] font-bold text-gray-500 active:scale-95 transition-all">
+          <i className="fas fa-undo text-[10px]"></i> 重置本关
         </button>
       </div>
 
-      {/* Main Grid */}
-      <div className="w-full max-w-md grid grid-cols-3 gap-2 px-1 flex-grow flex items-center justify-center overflow-visible">
-        {gameState.grid.map((column, colIdx) => (
-          <div key={`col-${colIdx}`} className="flex flex-col gap-2 justify-center">
-            {column.map((cell, rowIdx) => {
-              if (!cell) return null;
-              const isSelected = gameState.selectedNum?.source === 'grid' && gameState.selectedNum?.col === colIdx && gameState.selectedNum?.row === rowIdx ||
-                                 gameState.selectedOp?.col === colIdx && gameState.selectedOp?.row === rowIdx;
-              return (
-                <motion.button key={cell.id} layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} whileTap={{ scale: 0.94 }} onClick={() => handleCellClick(colIdx, rowIdx)} className={`relative h-16 sm:h-20 w-full flex items-center justify-center rounded-[20px] text-2xl font-bold transition-all duration-300 ios-shadow ${cell.type === 'operator' ? 'bg-orange-50/80 text-orange-500 border border-orange-100' : 'bg-white text-black border border-white/50'} ${isSelected ? 'ring-4 ring-blue-500/30 !bg-blue-600 !text-white !border-blue-600 shadow-[0_8px_20px_rgba(37,99,235,0.3)]' : ''}`}>{cell.value}</motion.button>
-              );
-            })}
+      {/* Grid Area Container */}
+      <div className={`w-full max-w-md relative flex-grow flex flex-col justify-center overflow-visible`}>
+        <div className={`grid grid-cols-3 gap-3 px-1 transition-all duration-500 ${gameState.tutorialStep === 3 ? 'z-[1001] bg-white/20 p-4 rounded-3xl ring-4 ring-blue-400 scale-105 shadow-2xl' : ''}`}>
+          {gameState.grid.map((column, colIdx) => (
+            <div key={`col-${colIdx}`} className="flex flex-col gap-2.5 justify-center">
+              {column.map((cell, rowIdx) => {
+                if (!cell) return null;
+                const isSelected = gameState.selectedNum?.source === 'grid' && gameState.selectedNum?.col === colIdx && gameState.selectedNum?.row === rowIdx || gameState.selectedOp?.col === colIdx && gameState.selectedOp?.row === rowIdx;
+                
+                let isGuided = false;
+                if (gameState.tutorialStep !== null) {
+                  const guideMap = [
+                    { c: 0, r: 0 }, { c: 1, r: 0 }, { c: 0, r: 1 }, { c: 0, r: 1 }, { c: 0, r: 1 }, { c: 1, r: 2 }, { c: 2, r: 2 }
+                  ];
+                  const curActionIdx = gameState.tutorialStep - 4;
+                  if (curActionIdx >= 0 && curActionIdx < guideMap.length) {
+                    const targetPos = guideMap[curActionIdx];
+                    if (colIdx === targetPos.c && rowIdx === targetPos.r) isGuided = true;
+                  }
+                }
+
+                return (
+                  <motion.button 
+                    key={cell.id} 
+                    layout 
+                    initial={{ opacity: 0, scale: 0.9 }} 
+                    animate={{ opacity: 1, scale: 1 }} 
+                    whileTap={{ scale: 0.94 }} 
+                    onClick={() => handleCellClick(colIdx, rowIdx)} 
+                    className={`relative h-14 sm:h-18 w-full flex items-center justify-center rounded-[20px] text-xl font-bold transition-all duration-300 ios-shadow ${cell.type === 'operator' ? 'bg-orange-50/80 text-orange-500 border border-orange-100' : 'bg-white text-black border border-white/50'} ${isSelected ? 'ring-4 ring-blue-500/30 !bg-blue-600 !text-white !border-blue-600 shadow-lg scale-110' : ''} ${isGuided ? 'z-[1001] ring-4 ring-blue-500 animate-pulse !shadow-2xl' : ''}`}
+                  >
+                    {cell.value}
+                  </motion.button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        {gameState.tutorialStep !== null && gameState.tutorialStep < 3 && (
+          <div className="absolute inset-0 z-[1002] flex items-center justify-center p-4">
+             <TutorialView />
           </div>
-        ))}
-      </div>
-
-      {/* Gacha System UI */}
-      <div className="w-full max-w-md mt-6 px-2 shrink-0">
-        <div className="flex justify-between items-end mb-2">
-          <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">
-            {isStorageFull 
-              ? (rulesLang === 'zh' ? '暂存栏已满，请使用道具' : 'Storage full, use an item')
-              : (rulesLang === 'zh' ? `再消耗 ${Math.max(0, GACHA_THRESHOLD - gameState.numbersUsed)} 个数字进行抽卡` : `Use ${Math.max(0, GACHA_THRESHOLD - gameState.numbersUsed)} more for a draw`)}
-          </span>
-          <span className="text-[10px] font-bold text-blue-600">{Math.floor(drawProgress)}%</span>
-        </div>
-        
-        {/* Progress Bar */}
-        <div className="w-full h-1 bg-gray-200 rounded-full mb-4 overflow-hidden">
-          <motion.div animate={{ width: `${drawProgress}%` }} className="h-full bg-blue-600" />
-        </div>
-
-        {/* Storage Slots */}
-        <div className="grid grid-cols-4 gap-3">
-          {gameState.storage.map((item, i) => {
-            const isSelected = gameState.selectedNum?.source === 'storage' && gameState.selectedNum?.storageIndex === i;
-            return (
-              <button
-                key={item?.id || `empty-${i}`}
-                onClick={() => handleStorageClick(i)}
-                className={`aspect-square rounded-[18px] flex items-center justify-center transition-all duration-300 ios-shadow border ${item ? 'bg-white border-white/50' : 'bg-gray-100/50 border-dashed border-gray-200'} ${isSelected ? 'ring-4 ring-blue-500/30 !bg-blue-600 !text-white !border-blue-600' : ''}`}
-              >
-                {item?.type === 'number' && <span className="text-xl font-black">{item.value}</span>}
-                {item?.type === 'timer' && <i className="fas fa-stopwatch text-rose-500 text-xl"></i>}
-                {item?.type === 'refresh' && <i className="fas fa-sync-alt text-emerald-500 text-xl"></i>}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Pause Modal */}
-      <AnimatePresence>
-        {gameState.isPaused && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[160] bg-black/40 ios-blur flex items-center justify-center">
-            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-[32px] p-10 flex flex-col items-center ios-shadow">
-              <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-6">
-                <i className="fas fa-pause text-blue-600 text-3xl"></i>
-              </div>
-              <h2 className="text-2xl font-black mb-8">{rulesLang === 'zh' ? '游戏已暂停' : 'Game Paused'}</h2>
-              <button onClick={handlePause} className="px-10 py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition-all">
-                {rulesLang === 'zh' ? '继续游戏' : 'Resume'}
-              </button>
-            </motion.div>
-          </motion.div>
         )}
-      </AnimatePresence>
+      </div>
+
+      {/* Bottom Area (Gacha/Storage) */}
+      <div className={`w-full max-w-md mt-4 px-2 shrink-0 ${gameState.tutorialStep !== null ? 'opacity-10 pointer-events-none' : ''}`}>
+        <div className="flex justify-between items-end mb-1.5">
+          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">抽卡进度</span>
+          <span className="text-[10px] font-bold text-blue-400">{Math.floor(drawProgress)}%</span>
+        </div>
+        <div className="w-full h-1 bg-gray-200 rounded-full mb-3 overflow-hidden">
+          <motion.div animate={{ width: `${drawProgress}%` }} className="h-full bg-blue-600" transition={{ duration: 0.3 }} />
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          {gameState.storage.map((item, i) => (
+            <button 
+              key={item?.id || `empty-${i}`} 
+              onClick={() => {
+                if (!item) return;
+                if (item.type === 'number') {
+                  if (gameState.selectedNum?.source === 'storage' && gameState.selectedNum.storageIndex === i) {
+                    setGameState(p => p ? { ...p, selectedNum: null, selectedOp: null } : null);
+                    return;
+                  }
+                  if (gameState.selectedNum && gameState.selectedOp) {
+                    performSynthesis(gameState.selectedNum, gameState.selectedOp, { col: -1, row: -1, source: 'storage', storageIndex: i });
+                    return;
+                  }
+                  setGameState(p => p ? { ...p, selectedNum: { col: -1, row: -1, source: 'storage', storageIndex: i } } : null);
+                } else if (item.type === 'timer') {
+                  setTimeLeft(prev => Math.min(maxTime, prev + 15));
+                  setGameState(p => {
+                    if (!p) return null;
+                    const nextStorage = [...p.storage];
+                    nextStorage[i] = null;
+                    return { ...p, storage: nextStorage };
+                  });
+                  setMessage("时间增加 15s");
+                } else if (item.type === 'refresh') {
+                   resetGame();
+                   setMessage("棋盘已刷新");
+                }
+              }}
+              className={`aspect-square rounded-[16px] ios-shadow border flex items-center justify-center transition-all ${item ? 'bg-white border-white/50 active:scale-90' : 'bg-gray-100/50 border-dashed border-gray-200'} ${gameState.selectedNum?.source === 'storage' && gameState.selectedNum.storageIndex === i ? 'ring-2 ring-blue-500 scale-105' : ''}`}
+            >
+              {item?.type === 'number' && <span className="text-lg font-black">{item.value}</span>}
+              {item?.type === 'timer' && <i className="fas fa-stopwatch text-rose-500 text-lg"></i>}
+              {item?.type === 'refresh' && <i className="fas fa-sync-alt text-emerald-500 text-lg"></i>}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Gacha Modal */}
       <AnimatePresence>
         {isGachaModalOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[120] bg-black/60 ios-blur flex items-center justify-center p-6">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[2000] bg-black/60 ios-blur flex items-center justify-center p-6">
             <motion.div initial={{ scale: 0.9, y: 30 }} animate={{ scale: 1, y: 0 }} className="bg-white rounded-[32px] p-8 w-full max-w-xs ios-shadow text-center relative overflow-hidden">
-              <div className="absolute -top-12 -left-12 w-32 h-32 bg-blue-50 rounded-full opacity-50 blur-3xl"></div>
-              <div className="absolute -bottom-12 -right-12 w-32 h-32 bg-orange-50 rounded-full opacity-50 blur-3xl"></div>
-              
-              <h2 className="text-2xl font-black mb-6 tracking-tight">{rulesLang === 'zh' ? '幸运抽奖' : 'Lucky Draw'}</h2>
-              
+              <h2 className="text-2xl font-black mb-6 tracking-tight">幸运抽奖</h2>
               <div className="h-32 flex items-center justify-center mb-8">
-                <AnimatePresence mode="wait">
-                  {isDrawing ? (
-                    <motion.div key="spinning" animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.5, ease: 'linear' }} className="text-5xl text-blue-600"><i className="fas fa-spinner"></i></motion.div>
-                  ) : drawResult ? (
-                    <motion.div key="result" initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} className="flex flex-col items-center">
-                      <div className="w-20 h-20 bg-blue-50 rounded-[24px] flex items-center justify-center mb-4">
-                        {drawResult.type === 'score' && <i className="fas fa-star text-yellow-500 text-3xl"></i>}
-                        {drawResult.type === 'number' && <span className="text-4xl font-black text-blue-600">{drawResult.value}</span>}
-                        {drawResult.type === 'timer' && <i className="fas fa-stopwatch text-rose-500 text-4xl"></i>}
-                        {drawResult.type === 'refresh' && <i className="fas fa-sync-alt text-emerald-500 text-4xl"></i>}
-                      </div>
-                      <p className="text-sm font-bold text-gray-500">
-                        {drawResult.type === 'score' ? '+500 Points' : 
-                         drawResult.type === 'number' ? (rulesLang === 'zh' ? '数字道具' : 'Number Item') :
-                         drawResult.type === 'timer' ? (rulesLang === 'zh' ? '加时道具' : 'Time Boost') : 
-                         (rulesLang === 'zh' ? '刷新道具' : 'Refresh Board')}
-                      </p>
-                    </motion.div>
-                  ) : (
-                    <motion.div className="text-6xl text-gray-100"><i className="fas fa-gift"></i></motion.div>
-                  )}
-                </AnimatePresence>
+                {isDrawing ? (
+                  <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.5, ease: 'linear' }} className="text-5xl text-blue-600">
+                    <i className="fas fa-spinner"></i>
+                  </motion.div>
+                ) : drawResult ? (
+                  <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="flex flex-col items-center">
+                    <div className="w-20 h-20 bg-blue-50 rounded-[24px] flex items-center justify-center mb-4">
+                      {drawResult.type === 'score' && <i className="fas fa-star text-yellow-500 text-3xl"></i>}
+                      {drawResult.type === 'number' && <span className="text-4xl font-black text-blue-600">{drawResult.value}</span>}
+                      {drawResult.type === 'timer' && <i className="fas fa-stopwatch text-rose-500 text-4xl"></i>}
+                      {drawResult.type === 'refresh' && <i className="fas fa-sync-alt text-emerald-500 text-4xl"></i>}
+                    </div>
+                  </motion.div>
+                ) : (
+                  <i className="fas fa-gift text-6xl text-gray-200"></i>
+                )}
               </div>
-
               {!drawResult ? (
-                <button onClick={triggerDraw} disabled={isDrawing} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition-all">
-                  {isDrawing ? '...' : (rulesLang === 'zh' ? '抽奖' : 'Draw')}
+                <button 
+                  onClick={() => {
+                    setIsDrawing(true);
+                    setTimeout(() => {
+                      const pool: ItemType[] = ['score', 'number', 'timer', 'refresh'];
+                      const type = pool[Math.floor(Math.random() * pool.length)];
+                      const result = { id: generateRandomId(), type, value: type === 'number' ? Math.floor(Math.random() * 9) + 1 : undefined };
+                      setGameState(prev => {
+                        if (!prev) return null;
+                        let { score, numbersUsed, totalDraws, storage } = prev;
+                        if (type === 'score') score += 500;
+                        else {
+                          const idx = storage.indexOf(null);
+                          if (idx !== -1) storage[idx] = result;
+                        }
+                        return { ...prev, score, numbersUsed: 0, totalDraws: totalDraws + 1, storage: [...storage] };
+                      });
+                      setDrawResult(result);
+                      setIsDrawing(false);
+                    }, 1500);
+                  }} 
+                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold active:scale-95"
+                >
+                  点击开启
                 </button>
               ) : (
-                <button onClick={() => { setIsGachaModalOpen(false); setDrawResult(null); }} className="w-full py-4 bg-gray-900 text-white rounded-2xl font-bold active:scale-95 transition-all">
-                  {rulesLang === 'zh' ? '收下' : 'Collect'}
+                <button 
+                  onClick={() => { setIsGachaModalOpen(false); setDrawResult(null); }} 
+                  className="w-full py-4 bg-gray-900 text-white rounded-2xl font-bold active:scale-95"
+                >
+                  收下奖励
                 </button>
               )}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Rules Modal */}
-      <AnimatePresence>
-        {showRules && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[150] bg-black/40 ios-blur flex items-center justify-center p-6">
-            <motion.div initial={{ scale: 0.9, y: 30 }} animate={{ scale: 1, y: 0 }} className="bg-white rounded-[32px] p-8 w-full max-w-sm ios-shadow relative">
-              <button onClick={() => setRulesLang(rulesLang === 'zh' ? 'en' : 'zh')} className="absolute top-6 left-6 px-3 py-1 rounded-full bg-gray-100 text-[10px] font-bold border border-gray-200">{rulesLang === 'zh' ? 'EN' : '中文'}</button>
-              <button onClick={() => setShowRules(false)} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500"><i className="fas fa-xmark"></i></button>
-              <h2 className="text-2xl font-black mb-6 mt-4">? {rulesLang === 'zh' ? '玩法介绍' : 'How to Play'}</h2>
-              <div className="space-y-4 text-sm text-gray-600">
-                <p>1. {rulesLang === 'zh' ? '点击数字、运算符、数字进行合成。' : 'Combine number, operator, and number.'}</p>
-                <p>2. {rulesLang === 'zh' ? '合成目标值可得分并延长生命。' : 'Matching targets score points and reset timer.'}</p>
-                <p>3. {rulesLang === 'zh' ? `每消耗 ${GACHA_THRESHOLD} 个数字可获得特殊道具。` : `Draw special items every ${GACHA_THRESHOLD} numbers used.`}</p>
-              </div>
-              <button onClick={() => setShowRules(false)} className="w-full mt-8 py-4 bg-blue-600 text-white rounded-2xl font-bold">{rulesLang === 'zh' ? '明白' : 'Got it'}</button>
             </motion.div>
           </motion.div>
         )}
@@ -596,56 +600,84 @@ const App: React.FC = () => {
       {/* Game Over Modal */}
       <AnimatePresence>
         {gameState.isGameOver && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[200] bg-black/20 ios-blur flex items-center justify-center p-6">
-            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-[32px] p-8 w-full max-w-sm ios-shadow text-center">
-              <h2 className="text-3xl font-black mb-4">Game Over</h2>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[3000] bg-black/40 ios-blur flex items-center justify-center p-6 text-center">
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="bg-white rounded-[32px] p-8 w-full max-w-sm ios-shadow">
+              <h2 className="text-3xl font-black mb-4">挑战结束</h2>
               <div className="bg-gray-50 rounded-2xl p-6 mb-6">
-                <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">Score</div>
+                <div className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-1">Final Score</div>
                 <div className="text-4xl font-black text-blue-600">{gameState.score}</div>
               </div>
-              <input type="text" placeholder={rulesLang === 'zh' ? '输入昵称' : 'Name'} value={username} onChange={(e) => setUsername(e.target.value)} className="w-full bg-gray-50 border rounded-xl px-4 py-3 mb-4 text-center font-bold" />
-              <button onClick={saveScore} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold">Save & Restart</button>
-              <button onClick={resetGame} className="w-full mt-2 py-2 text-gray-400 font-bold">Discard</button>
+              <input 
+                type="text" 
+                placeholder="输入你的昵称" 
+                value={username} 
+                onChange={e => setUsername(e.target.value)} 
+                className="w-full bg-gray-50 border-gray-100 border rounded-xl px-4 py-4 mb-4 text-center font-bold outline-none focus:ring-2 focus:ring-blue-500/20 transition-all" 
+              />
+              <button 
+                onClick={() => { 
+                  if (!username.trim() || gameState.score === 0) {
+                     resetGame();
+                     return;
+                  }
+                  supabase.from('high_scores').insert([{ username, score: gameState.score }]).then(fetchLeaderboard); 
+                  resetGame(); 
+                  setUsername(''); 
+                }} 
+                className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold mb-2 shadow-xl shadow-blue-500/20 active:scale-95"
+              >
+                保存成绩
+              </button>
+              <button onClick={resetGame} className="w-full py-3 text-gray-400 font-bold active:scale-95">重新开始</button>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Leaderboard Slide-up */}
+      {/* Leaderboard Overlay */}
       <AnimatePresence>
         {showLeaderboard && (
-          <motion.div 
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed inset-0 z-[180] bg-white flex flex-col pt-safe"
-          >
+          <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="fixed inset-0 z-[2500] bg-white flex flex-col pt-safe">
             <div className="flex justify-between items-center p-6 border-b border-gray-50">
-              <h2 className="text-xl font-black tracking-tight">{rulesLang === 'zh' ? '排行榜' : 'Leaderboard'}</h2>
+              <h2 className="text-xl font-black tracking-tight">排行榜</h2>
               <button onClick={() => setShowLeaderboard(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 text-gray-600 active:scale-90"><i className="fas fa-xmark text-lg"></i></button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
-              {leaderboard.map((entry, i) => (
+              {leaderboard.length > 0 ? leaderboard.map((entry, i) => (
                 <div key={entry.id} className="flex items-center justify-between bg-gray-50/50 p-5 rounded-3xl border border-gray-100">
                   <div className="flex items-center gap-5">
-                    <span className={`w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold ${i === 0 ? 'bg-yellow-100 text-yellow-600' : i === 1 ? 'bg-gray-200 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-600' : 'text-gray-400'}`}>{i + 1}</span>
-                    <span className="font-bold text-gray-800 truncate max-w-[150px]">{entry.username}</span>
+                    <span className={`w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold ${i < 3 ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>{i + 1}</span>
+                    <span className="font-bold text-gray-800">{entry.username}</span>
                   </div>
                   <span className="font-black text-xl text-blue-600 tracking-tight">{entry.score}</span>
                 </div>
-              ))}
+              )) : (
+                <div className="flex flex-col items-center justify-center h-full text-gray-300">
+                  <i className="fas fa-trophy text-6xl mb-4 opacity-10"></i>
+                  <p className="font-bold">虚位以待</p>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Toast Message */}
+      {/* Toast Notification */}
       <AnimatePresence>
         {message && (
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="fixed bottom-8 z-[210] bg-gray-900/90 text-white text-[11px] font-bold px-6 py-3 rounded-full ios-blur ios-shadow" onAnimationComplete={() => setTimeout(() => setMessage(null), 2000)}>
-            {message}
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.8, y: 50 }} 
+            animate={{ opacity: 1, scale: 1, y: 0 }} 
+            exit={{ opacity: 0, scale: 0.8 }} 
+            className="fixed inset-x-0 top-1/2 -translate-y-1/2 mx-auto z-[4000] w-fit max-w-[80vw] bg-gray-900/95 text-white text-center font-bold px-10 py-6 rounded-3xl ios-shadow ios-blur"
+            onAnimationComplete={() => setTimeout(() => setMessage(null), 2300)}
+          >
+            <div className="text-4xl mb-3">✨</div>
+            <div className="text-lg">{message}</div>
           </motion.div>
         )}
       </AnimatePresence>
+
     </div>
   );
 };

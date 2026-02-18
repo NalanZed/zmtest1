@@ -1,5 +1,5 @@
 {
-  "name": "Math Synthesis Quest",
-  "description": "A tactical number-merging puzzle game where you synthesize numbers to match targets using arithmetic operators in a dynamic falling-block grid.",
+  "name": "24点：放飞版",
+  "description": "一个富有挑战性的数字合成谜题游戏，在动态落块网格中利用算术运算合成目标数字。",
   "requestFramePermissions": []
 }

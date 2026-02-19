@@ -183,27 +183,167 @@ export const createCell = (type: 'number' | 'operator', value?: number | Operato
   type
 });
 
-export const getTargetForAbsoluteIndex = (index: number, totalDraws: number): TargetData => {
-  const GROUP_WARMUP = TARGET_CATALOG.filter(t => t.value < 40 && t.diff <= 1);
-  const GROUP_LOW = TARGET_CATALOG.filter(t => t.diff <= 2);
-  const GROUP_MED = TARGET_CATALOG.filter(t => t.diff === 3);
-  const GROUP_HIGH = TARGET_CATALOG.filter(t => t.diff === 4);
-  const GROUP_LEGEND = TARGET_CATALOG.filter(t => t.diff === 5);
+/**
+ * ==========================================
+ * DIFFICULTY GROUPS - 按难度分组的数字集合
+ * ==========================================
+ */
+export const DIFF_GROUPS = {
+  // 难度0-1：简单到普通
+  EASY_NORMAL: [0, 1] as const,
+  // 难度0：非常简单
+  EASY: [0] as const,
+  // 难度1：普通
+  NORMAL: [1] as const,
+  // 难度2：困难
+  HARD: [2] as const,
+  // 难度3：专家
+  EXPERT: [3] as const,
+  // 难度4：大师
+  MASTER: [4] as const,
+  // 难度5：传奇
+  LEGEND: [5] as const,
+} as const;
 
-  if (index < 3) return GROUP_WARMUP[Math.floor(Math.random() * GROUP_WARMUP.length)];
+export type DiffGroupKey = keyof typeof DIFF_GROUPS;
 
-  const relativeIdx = index - 3;
-  if (totalDraws < 2) {
-    const cycleIdx = relativeIdx % 6;
-    if (cycleIdx < 3) return GROUP_LOW[Math.floor(Math.random() * GROUP_LOW.length)];
-    if (cycleIdx === 3) return GROUP_MED[Math.floor(Math.random() * GROUP_MED.length)];
-    if (cycleIdx === 4) return GROUP_HIGH[Math.floor(Math.random() * GROUP_HIGH.length)];
-    return GROUP_LEGEND[Math.floor(Math.random() * GROUP_LEGEND.length)];
-  } else {
-    const cycleIdx = relativeIdx % 5;
-    if (cycleIdx < 2) return GROUP_LOW[Math.floor(Math.random() * GROUP_LOW.length)];
-    if (cycleIdx === 2) return GROUP_MED[Math.floor(Math.random() * GROUP_MED.length)];
-    if (cycleIdx === 3) return GROUP_HIGH[Math.floor(Math.random() * GROUP_HIGH.length)];
-    return GROUP_LEGEND[Math.floor(Math.random() * GROUP_LEGEND.length)];
+/**
+ * ==========================================
+ * TARGET POOL - 按难度分组的数字池
+ * ==========================================
+ */
+// 预计算各难度的数字池
+const TARGETS_BY_DIFF: Record<number, TargetData[]> = {};
+for (const target of TARGET_CATALOG) {
+  if (!TARGETS_BY_DIFF[target.diff]) {
+    TARGETS_BY_DIFF[target.diff] = [];
   }
+  TARGETS_BY_DIFF[target.diff].push(target);
+}
+
+// 便捷获取函数：从指定难度组中随机获取
+const getRandomFromDiffs = (diffs: readonly number[]): TargetData => {
+  const pool = diffs.flatMap(d => TARGETS_BY_DIFF[d] || []);
+  return pool[Math.floor(Math.random() * pool.length)];
+};
+
+// 预计算常用组合池
+const WARMUP_POOL = TARGET_CATALOG.filter(t => t.value < 40 && t.diff <= 1);
+
+/**
+ * ==========================================
+ * TARGET SEQUENCE CONFIG - 目标序列配置
+ * ==========================================
+ * 定义每种序列类型的生成规则
+ */
+export interface TargetSequenceStep {
+  /** 从哪个难度组取数 */
+  diffGroup: DiffGroupKey;
+  /** 说明（仅用于文档） */
+  description?: string;
+}
+
+export interface TargetSequenceConfig {
+  /** 序列名称 */
+  name: string;
+  /** 序列长度（每轮多少个目标） */
+  length: number;
+  /** 每步的取数规则 */
+  steps: TargetSequenceStep[];
+}
+
+/**
+ * ==========================================
+ * SEQUENCE PATTERNS - 序列模式定义
+ * ==========================================
+ */
+export const SEQUENCE_PATTERNS = {
+  /** 正常序列（中等难度） */
+  NORMAL: {
+    name: 'Normal',
+    length: 6,
+    steps: [
+      { diffGroup: 'EASY_NORMAL', description: '前两个从难度0-1中随机取' },
+      { diffGroup: 'EASY_NORMAL', description: '前两个从难度0-1中随机取' },
+      { diffGroup: 'HARD', description: '第三个从难度2中取' },
+      { diffGroup: 'EASY_NORMAL', description: '第四个从难度0-1中取' },
+      { diffGroup: 'HARD', description: '第五个从难度2中取' },
+      { diffGroup: 'EXPERT', description: '第六个从难度3中取' },
+    ]
+  } as TargetSequenceConfig,
+
+  /** 困难序列（高难度） */
+  HARD: {
+    name: 'Hard',
+    length: 6,
+    steps: [
+      { diffGroup: 'EASY_NORMAL', description: '前两个从难度0-1中取' },
+      { diffGroup: 'EASY_NORMAL', description: '前两个从难度0-1中取' },
+      { diffGroup: 'MASTER', description: '第三个从难度4中取' },
+      { diffGroup: 'LEGEND', description: '第四个从难度5中取' },
+      { diffGroup: 'EASY_NORMAL', description: '第五、六个从难度0-1中随机取' },
+      { diffGroup: 'EASY_NORMAL', description: '第五、六个从难度0-1中随机取' },
+    ]
+  } as TargetSequenceConfig,
+} as const;
+
+export type SequencePatternKey = keyof typeof SEQUENCE_PATTERNS;
+
+/**
+ * ==========================================
+ * MAIN SEQUENCE ORDER - 主序列循环顺序
+ * ==========================================
+ * 定义序列的播放顺序：两个正常 + 一个困难 交替
+ */
+export const MAIN_SEQUENCE_ORDER: SequencePatternKey[] = [
+  'NORMAL', 'NORMAL', 'HARD'
+];
+
+/**
+ * ==========================================
+ * TARGET GENERATOR - 目标数字生成器
+ * ==========================================
+ */
+class TargetGenerator {
+  /** 获取随机目标 */
+  getTarget(absoluteIndex: number): TargetData {
+    // 前3个目标使用热身池
+    if (absoluteIndex < 3) {
+      return WARMUP_POOL[Math.floor(Math.random() * WARMUP_POOL.length)];
+    }
+
+    // 计算在主序列中的位置
+    const mainIndex = absoluteIndex - 3;
+    const mainSequenceLength = MAIN_SEQUENCE_ORDER.reduce((sum, key) => sum + SEQUENCE_PATTERNS[key].length, 0);
+    const cyclePosition = mainIndex % mainSequenceLength;
+
+    // 确定当前在哪个序列中
+    let remaining = cyclePosition;
+    let currentSequenceKey: SequencePatternKey = 'NORMAL';
+
+    for (const seqKey of MAIN_SEQUENCE_ORDER) {
+      const seqLength = SEQUENCE_PATTERNS[seqKey].length;
+      if (remaining < seqLength) {
+        currentSequenceKey = seqKey;
+        break;
+      }
+      remaining -= seqLength;
+    }
+
+    // 获取当前序列的配置和位置
+    const sequenceConfig = SEQUENCE_PATTERNS[currentSequenceKey];
+    const stepIndex = remaining % sequenceConfig.length;
+    const diffGroup = sequenceConfig.steps[stepIndex].diffGroup;
+
+    // 从对应难度组获取随机目标
+    return getRandomFromDiffs(DIFF_GROUPS[diffGroup]);
+  }
+}
+
+// 导出单例生成器
+export const targetGenerator = new TargetGenerator();
+
+// 兼容旧接口的函数
+export const getTargetForAbsoluteIndex = (index: number, _totalDraws: number): TargetData => {
+  return targetGenerator.getTarget(index);
 };

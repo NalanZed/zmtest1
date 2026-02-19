@@ -1,5 +1,5 @@
 
-import { TargetData, ItemType } from './types';
+import { TargetData, ItemType, Cell, Operator } from './types';
 
 /**
  * ==========================================
@@ -124,6 +124,7 @@ export const TARGET_CATALOG: TargetData[] = [
  */
 export const GAME_PARAMS = {
   GACHA_THRESHOLD: 30,      // Progress needed to trigger a draw
+  GACHA_TARGETS_THRESHOLD: 6, // Targets cleared to trigger a gacha draw
   TIMER_MULTIPLIER: 18,     // Seconds per core_base unit (e.g., 2 * 18 = 36s)
   STORAGE_SIZE: 4,          // Number of item slots
   COMBO_SCORE_BONUS: 20,    // Points per combo
@@ -159,3 +160,50 @@ export const DIFF_UI = {
   4: { label: 'MASTER', color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-100' },
   5: { label: 'LEGEND', color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-100' },
 } as Record<number, { label: string; color: string; bg: string; border: string }>;
+
+/**
+ * ==========================================
+ * GRID CONSTANTS
+ * ==========================================
+ */
+export const NUM_HEIGHT = 3;
+export const OP_HEIGHT = 4;
+export const OPERATORS: Operator[] = ['+', '-', '×', '÷'];
+
+/**
+ * ==========================================
+ * UTILITY FUNCTIONS
+ * ==========================================
+ */
+export const generateRandomId = () => Math.random().toString(36).substr(2, 9);
+
+export const createCell = (type: 'number' | 'operator', value?: number | Operator): Cell => ({
+  id: generateRandomId(),
+  value: value !== undefined ? value : (type === 'number' ? Math.floor(Math.random() * 9) + 1 : OPERATORS[Math.floor(Math.random() * OPERATORS.length)]),
+  type
+});
+
+export const getTargetForAbsoluteIndex = (index: number, totalDraws: number): TargetData => {
+  const GROUP_WARMUP = TARGET_CATALOG.filter(t => t.value < 40 && t.diff <= 1);
+  const GROUP_LOW = TARGET_CATALOG.filter(t => t.diff <= 2);
+  const GROUP_MED = TARGET_CATALOG.filter(t => t.diff === 3);
+  const GROUP_HIGH = TARGET_CATALOG.filter(t => t.diff === 4);
+  const GROUP_LEGEND = TARGET_CATALOG.filter(t => t.diff === 5);
+
+  if (index < 3) return GROUP_WARMUP[Math.floor(Math.random() * GROUP_WARMUP.length)];
+
+  const relativeIdx = index - 3;
+  if (totalDraws < 2) {
+    const cycleIdx = relativeIdx % 6;
+    if (cycleIdx < 3) return GROUP_LOW[Math.floor(Math.random() * GROUP_LOW.length)];
+    if (cycleIdx === 3) return GROUP_MED[Math.floor(Math.random() * GROUP_MED.length)];
+    if (cycleIdx === 4) return GROUP_HIGH[Math.floor(Math.random() * GROUP_HIGH.length)];
+    return GROUP_LEGEND[Math.floor(Math.random() * GROUP_LEGEND.length)];
+  } else {
+    const cycleIdx = relativeIdx % 5;
+    if (cycleIdx < 2) return GROUP_LOW[Math.floor(Math.random() * GROUP_LOW.length)];
+    if (cycleIdx === 2) return GROUP_MED[Math.floor(Math.random() * GROUP_MED.length)];
+    if (cycleIdx === 3) return GROUP_HIGH[Math.floor(Math.random() * GROUP_HIGH.length)];
+    return GROUP_LEGEND[Math.floor(Math.random() * GROUP_LEGEND.length)];
+  }
+};

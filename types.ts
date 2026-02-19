@@ -52,4 +52,5 @@ export interface GameState {
   storage: (StorageItem | null)[];
   levelStartState: LevelStartState | null;
   tutorialStep: number | null; // null means tutorial finished or not started
+  lastGachaThreshold: number;
 }

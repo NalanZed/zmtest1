@@ -124,7 +124,7 @@ export const TARGET_CATALOG: TargetData[] = [
  */
 export const GAME_PARAMS = {
   GACHA_THRESHOLD: 6,       // Numbers used to trigger a gacha draw
-  GACHA_TARGETS_THRESHOLD: 1, // Targets cleared to trigger a gacha draw
+  GACHA_TARGETS_THRESHOLD: 3, // Targets cleared to trigger a gacha draw
   TIMER_MULTIPLIER: 18,     // Seconds per core_base unit (e.g., 2 * 18 = 36s)
   STORAGE_SIZE: 4,          // Number of item slots
   COMBO_SCORE_BONUS: 20,    // Points per combo

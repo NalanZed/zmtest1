@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Cell, Operator, Position, GameState } from '../types';
-import { GAME_PARAMS, DIFF_UI, NUM_HEIGHT, OP_HEIGHT, OPERATORS, createCell, generateRandomId, getTargetForAbsoluteIndex, setTargetScore, SEQUENCE_PATTERNS, getSequenceOrder } from '../gameConfig';
+import { GAME_PARAMS, DIFF_UI, NUM_HEIGHT, OP_HEIGHT, OPERATORS, createCell, generateRandomId, getTargetForAbsoluteIndex, setTargetScore, SEQUENCE_PATTERNS, getSequenceOrder, getRandomEasyTarget } from '../gameConfig';
 import { FEATURES } from '../featureFlags';
 import { Translations } from '../i18n';
 import { playFusionSound, playSuccessSound, playErrorSound } from '../services/soundEffects';
@@ -325,22 +325,18 @@ export function useGameCore(t: Translations) {
         }) : null);
     }, [gameState?.levelStartState]);
 
-    // 刷新目标数字（跳过当前目标）
+    // 刷新目标数字（用简单的目标替换）
     const refreshTarget = useCallback(() => {
         if (!gameState) return;
-        const newTarget = getTargetForAbsoluteIndex(gameState.totalTargetsCleared + 1, gameState.totalDraws);
-        const newNextTarget = getTargetForAbsoluteIndex(gameState.totalTargetsCleared + 2, gameState.totalDraws);
-        // 重置棋盘数字
-        const newGrid = [
-            Array.from({ length: NUM_HEIGHT }, () => createCell('number')),
-            Array.from({ length: OP_HEIGHT }, () => createCell('op')),
-            Array.from({ length: NUM_HEIGHT }, () => createCell('number'))
-        ];
+        // 从难度0中随机获取一个简单目标
+        const newTarget = getRandomEasyTarget();
+        // 保持下一个目标不变
+        const newNextTarget = gameState.nextTarget;
+        // 保持当前棋盘数字不变，不重置
         setGameState(prev => prev ? ({
             ...prev,
             currentTarget: newTarget,
             nextTarget: newNextTarget,
-            grid: newGrid,
             selectedNum: null,
             selectedOp: null,
             combo: 0

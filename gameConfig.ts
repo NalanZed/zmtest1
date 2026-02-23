@@ -305,6 +305,11 @@ const getRandomFromDiffs = (diffs: readonly number[]): TargetData => {
   return pool[Math.floor(Math.random() * pool.length)];
 };
 
+// 导出：获取难度为0的目标数字（用于刷新令牌）
+export const getRandomEasyTarget = (): TargetData => {
+  return getRandomFromDiffs([0]);
+};
+
 // 预计算常用组合池
 const WARMUP_POOL = TARGET_CATALOG.filter(t => t.value < 40 && t.diff <= 1);
 

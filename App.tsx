@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { FEATURES } from './featureFlags';
 import { TRANSLATIONS, Language } from './i18n';
-import { GAME_PARAMS, ITEM_CONFIG } from './gameConfig';
+import { GAME_PARAMS, ITEM_CONFIG, getTimerMultiplier, DIFFICULTY_BANNER_CONFIG } from './gameConfig';
 
 // Hooks
 import { useGameCore } from './hooks/useGameCore';
@@ -42,8 +42,10 @@ const App: React.FC = () => {
   const { leaderboard, showLeaderboard, setShowLeaderboard, submitScore } = useLeaderboard();
 
   // 计算计时器时长和激活状态
+  const currentScore = game.gameState?.score || 0;
+  const currentTimerMultiplier = getTimerMultiplier(currentScore);
   const timerDuration = (game.gameState && game.gameState.currentTarget && game.gameState.tutorialStep === null)
-    ? game.gameState.currentTarget.core_base * GAME_PARAMS.TIMER_MULTIPLIER * (game.gameState.timePenaltyCount > 0 ? 0.5 : 1)
+    ? game.gameState.currentTarget.core_base * currentTimerMultiplier * (game.gameState.timePenaltyCount > 0 ? 0.5 : 1)
     : 100; // 教程期间或无目标时固定100秒
 
   const timerActive = FEATURES.TIMER && !!game.gameState && !game.gameState.isGameOver && !game.gameState.isPaused &&
@@ -112,6 +114,7 @@ const App: React.FC = () => {
 
   // Handle gacha draw
   const handleGachaDraw = () => {
+    const currentScore = game.gameState?.score || 0;
     gacha.performDraw((result) => {
       game.setGameState(prev => {
         if (!prev) return null;
@@ -161,10 +164,15 @@ const App: React.FC = () => {
           }
         }
 
-        // 更新 levelStartState 以保持重置后的数字数量一致
-        const newLevelStartState = result.eventId === 'dog_attack'
-          ? { ...prev.levelStartState!, grid: JSON.parse(JSON.stringify(newGrid)) }
-          : prev.levelStartState;
+        // 更新 levelStartState
+        let newLevelStartState = prev.levelStartState;
+        if (result.eventId === 'dog_attack') {
+          // 猎狗攻击：更新grid
+          newLevelStartState = { ...prev.levelStartState!, grid: JSON.parse(JSON.stringify(newGrid)) };
+        } else if (result.resultType === 'item' && result.item.type !== 'score') {
+          // 获得道具时：更新storage为当前状态
+          newLevelStartState = { ...prev.levelStartState!, storage: JSON.parse(JSON.stringify(newStorage)) };
+        }
 
         return {
           ...prev,
@@ -176,7 +184,7 @@ const App: React.FC = () => {
           levelStartState: newLevelStartState
         };
       });
-    });
+    }, currentScore);
   };
 
   // ========== HOME SCREEN ==========
@@ -301,7 +309,7 @@ const App: React.FC = () => {
 
       {FEATURES.LEADERBOARD && <LeaderboardOverlay isOpen={showLeaderboard} leaderboard={leaderboard} onClose={() => setShowLeaderboard(false)} t={t} />}
       <ScorePopupOverlay popups={game.scorePopups} />
-      <Toast message={game.message} onDismiss={() => game.setMessage(null)} />
+      <Toast message={game.message} onDismiss={() => game.setMessage(null)} duration={DIFFICULTY_BANNER_CONFIG.DISPLAY_SECONDS * 1000} />
     </div>
   );
 };

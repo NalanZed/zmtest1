@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Cell, Operator, Position, GameState } from '../types';
-import { GAME_PARAMS, DIFF_UI, NUM_HEIGHT, OP_HEIGHT, OPERATORS, createCell, generateRandomId, getTargetForAbsoluteIndex, setTargetScore, SEQUENCE_PATTERNS, getSequenceOrder, getRandomEasyTarget } from '../gameConfig';
+import { GAME_PARAMS, DIFF_UI, NUM_HEIGHT, OP_HEIGHT, OPERATORS, createCell, generateRandomId, getTargetForAbsoluteIndex, setTargetScore, SEQUENCE_PATTERNS, getSequenceOrder, getRandomEasyTarget, getDifficultyLevel } from '../gameConfig';
 import { FEATURES } from '../featureFlags';
 import { Translations } from '../i18n';
 import { playFusionSound, playSuccessSound, playErrorSound } from '../services/soundEffects';
@@ -37,7 +37,8 @@ export function useGameCore(t: Translations) {
             tutorialStep: null,
             lastGachaThreshold: 0,
             timePenaltyCount: 0,
-            dogAttackCount: 0
+            dogAttackCount: 0,
+            lastDifficultyLevel: 0
         });
         return firstTarget;
     }, []);
@@ -59,7 +60,8 @@ export function useGameCore(t: Translations) {
             levelStartState: null, tutorialStep: 0,
             lastGachaThreshold: 0,
             timePenaltyCount: 0,
-            dogAttackCount: 0
+            dogAttackCount: 0,
+            lastDifficultyLevel: 0
         });
     }, []);
 
@@ -156,9 +158,18 @@ export function useGameCore(t: Translations) {
                     playSuccessSound();
                     // 触发分数弹出动画（位置在屏幕中心附近）
                     triggerScorePopup(roundScore, 50, 50);
-                    score += (prev.currentTarget.core_base * GAME_PARAMS.BASE_SCORE_MULTIPLIER) + (FEATURES.COMBO ? combo * GAME_PARAMS.COMBO_SCORE_BONUS : 0);
+                    // 连击加成最高160分（8次连击后不再增加）
+                    const maxComboBonus = 160;
+                    const comboBonus = FEATURES.COMBO ? Math.min(combo * GAME_PARAMS.COMBO_SCORE_BONUS, maxComboBonus) : 0;
+                    score += (prev.currentTarget.core_base * GAME_PARAMS.BASE_SCORE_MULTIPLIER) + comboBonus;
                     if (FEATURES.COMBO) combo += 1;
                     totalTargetsCleared += 1;
+
+                    // 检查难度是否提升（每10000分提升一次）
+                    const currentDifficultyLevel = getDifficultyLevel(score);
+                    if (currentDifficultyLevel > prev.lastDifficultyLevel) {
+                        setMessage(t.difficulty_increase_msg);
+                    }
 
                     // 检查是否完成了一个序列，完成后根据当前分数更新序列配置
                     const mainTargetsCleared = totalTargetsCleared - 3; // 去掉热身阶段的3个
@@ -246,7 +257,7 @@ export function useGameCore(t: Translations) {
                 });
 
                 const levelStartState = isMatch
-                    ? { grid: JSON.parse(JSON.stringify(normalGridForReset)), storage: JSON.parse(JSON.stringify(newStorage)), numbersUsed }
+                    ? { grid: JSON.parse(JSON.stringify(normalGridForReset)), storage: JSON.parse(JSON.stringify(newStorage)), numbersUsed: numbersUsed }
                     : prev.levelStartState;
 
                 return {
@@ -259,7 +270,8 @@ export function useGameCore(t: Translations) {
                     levelStartState,
                     tutorialStep: prev.tutorialStep !== null ? prev.tutorialStep + 1 : null,
                     timePenaltyCount: newTimePenaltyCount,
-                    dogAttackCount: (isMatch && dogAttackCount > 0) ? 0 : dogAttackCount
+                    dogAttackCount: (isMatch && dogAttackCount > 0) ? 0 : dogAttackCount,
+                    lastDifficultyLevel: isMatch ? getDifficultyLevel(score) : prev.lastDifficultyLevel
                 };
             });
             setIsSynthesizing(false);
@@ -317,7 +329,8 @@ export function useGameCore(t: Translations) {
         setGameState(prev => prev ? ({
             ...prev,
             grid: JSON.parse(JSON.stringify(prev.levelStartState!.grid)),
-            // 不重置 storage，保留通过抽卡获得的道具
+            // 恢复道具栏中的数字工具到目标出现时的状态
+            storage: JSON.parse(JSON.stringify(prev.levelStartState!.storage)),
             numbersUsed: prev.levelStartState!.numbersUsed,
             selectedNum: null,
             selectedOp: null,

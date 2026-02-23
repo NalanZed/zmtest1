@@ -80,4 +80,5 @@ export interface GameState {
   lastGachaThreshold: number;
   timePenaltyCount: number; // 剩余时间惩罚次数（事件效果计数）
   dogAttackCount: number; // 猎狗攻击：下回合丢失一个数字
+  lastDifficultyLevel: number; // 上一次显示横幅的难度等级
 }

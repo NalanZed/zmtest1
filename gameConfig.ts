@@ -114,10 +114,48 @@ export const TARGET_CATALOG: TargetData[] = [
 export const GAME_PARAMS = {
   GACHA_THRESHOLD: 6,       // Numbers used to trigger a gacha draw
   GACHA_TARGETS_THRESHOLD: 3, // Targets cleared to trigger a gacha draw
-  TIMER_MULTIPLIER: 18,     // Seconds per core_base unit (e.g., 2 * 18 = 36s)
   STORAGE_SIZE: 4,          // Number of item slots
   COMBO_SCORE_BONUS: 20,    // Points per combo
-  BASE_SCORE_MULTIPLIER: 50 // Points per core_base unit
+  BASE_SCORE_MULTIPLIER: 50, // Points per core_base unit
+
+  // 时间倍率难度配置
+  TIMER_DIFFICULTY: {
+    BASE_MULTIPLIER: 18,     // 初始时间倍率（秒）
+    START_SCORE: 20000,      // 开始增加难度的分数
+    INTERVAL: 5000,         // 分数间隔
+    DECREASE_AMOUNT: 0.5,   // 每次减少的秒数
+    MIN_MULTIPLIER: 14       // 最低时间倍率
+  }
+};
+
+/** 根据分数获取当前的时间倍率 */
+export const getTimerMultiplier = (score: number): number => {
+  const { TIMER_DIFFICULTY } = GAME_PARAMS;
+  const { BASE_MULTIPLIER, START_SCORE, INTERVAL, DECREASE_AMOUNT, MIN_MULTIPLIER } = TIMER_DIFFICULTY;
+
+  if (score < START_SCORE) {
+    return BASE_MULTIPLIER;
+  }
+
+  const increments = Math.floor((score - START_SCORE) / INTERVAL);
+  const newMultiplier = BASE_MULTIPLIER - (increments * DECREASE_AMOUNT);
+
+  return Math.max(newMultiplier, MIN_MULTIPLIER);
+};
+
+/** 难度提升阈值配置 */
+export const DIFFICULTY_BANNER_CONFIG = {
+  START_SCORE: 20000,   // 首次难度提升分数
+  INTERVAL: 10000,      // 每10000分提升一次
+  MAX_LEVEL: 4,         // 最大难度等级（60000分后不再显示横幅）
+  DISPLAY_SECONDS: 2.1 // 横幅显示秒数
+};
+
+/** 根据分数获取当前难度等级（每10000分一级，上限为MAX_LEVEL） */
+export const getDifficultyLevel = (score: number): number => {
+  const { START_SCORE, INTERVAL, MAX_LEVEL } = DIFFICULTY_BANNER_CONFIG;
+  if (score < START_SCORE) return 0;
+  return Math.min(Math.floor((score - START_SCORE) / INTERVAL) + 1, MAX_LEVEL);
 };
 
 /**
@@ -209,8 +247,8 @@ export const GACHA_EVENTS: GachaEventConfig[] = [
 // 概率分布：number 35%, refresh 35%, timer 15%, score 15%
 export const GACHA_ITEM_POOL: ItemType[] = [
   ...Array(35).fill('number'),
-  ...Array(30).fill('refresh'),
-  ...Array(15).fill('timer'),
+  ...Array(35).fill('refresh'),
+  ...Array(10).fill('timer'),
   ...Array(20).fill('score'),
 ];
 
@@ -220,8 +258,30 @@ export const GACHA_ITEM_POOL: ItemType[] = [
  * ==========================================
  */
 export const GACHA_CONFIG = {
-  /** 获得道具的概率 (0.5 = 50% 道具, 50% 事件) */
-  ITEM_CHANCE: 0.8
+  /** 基础获得道具的概率 */
+  BASE_ITEM_CHANCE: 0.8,
+  /** 难度增加分数阈值 */
+  DIFFICULTY_SCORE_THRESHOLD: 20000,
+  /** 每增加多少分触发一次难度提升 */
+  DIFFICULTY_INCREMENT_INTERVAL: 5000,
+  /** 每次难度提升减少多少道具概率 */
+  DIFFICULTY_PENALTY: 0.05,
+  /** 最低道具概率（封顶） */
+  MIN_ITEM_CHANCE: 0.5,
+};
+
+/** 获取当前分数对应的道具获得概率 */
+export const getItemChance = (score: number): number => {
+  const { BASE_ITEM_CHANCE, DIFFICULTY_SCORE_THRESHOLD, DIFFICULTY_INCREMENT_INTERVAL, DIFFICULTY_PENALTY, MIN_ITEM_CHANCE } = GACHA_CONFIG;
+
+  if (score < DIFFICULTY_SCORE_THRESHOLD) {
+    return BASE_ITEM_CHANCE;
+  }
+
+  const increments = Math.floor((score - DIFFICULTY_SCORE_THRESHOLD) / DIFFICULTY_INCREMENT_INTERVAL);
+  const newChance = BASE_ITEM_CHANCE - (increments * DIFFICULTY_PENALTY);
+
+  return Math.max(newChance, MIN_ITEM_CHANCE);
 };
 
 /**

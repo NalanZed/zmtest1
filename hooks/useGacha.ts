@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { StorageItem, ItemType, GachaResult, GachaItemResult, GachaEventResult } from '../types';
-import { generateRandomId, GACHA_NARRATIVES, GACHA_EVENTS, GACHA_ITEM_POOL, GACHA_CONFIG } from '../gameConfig';
+import { generateRandomId, GACHA_NARRATIVES, GACHA_EVENTS, GACHA_ITEM_POOL, getItemChance } from '../gameConfig';
 
 export function useGacha() {
     const [isOpen, setIsOpen] = useState(false);
@@ -36,12 +36,13 @@ export function useGacha() {
         return { narrative: intro, itemName };
     };
 
-    const performDraw = useCallback((onResult: (result: GachaResult) => void) => {
+    const performDraw = useCallback((onResult: (result: GachaResult) => void, score: number = 0) => {
         setIsDrawing(true);
 
         setTimeout(() => {
-            // 根据配置概率决定获得道具还是发生事件
-            const isItem = Math.random() < GACHA_CONFIG.ITEM_CHANCE;
+            // 根据当前分数计算道具获得概率
+            const itemChance = getItemChance(score);
+            const isItem = Math.random() < itemChance;
             let result: GachaResult;
 
             if (isItem) {

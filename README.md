@@ -1,20 +1,74 @@
+# Beyond 24 - 数学挑战游戏
+
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+  <img width="600" height="300" alt="Beyond 24 Banner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+## 游戏介绍
 
-This contains everything you need to run your app locally.
+**Beyond 24** 是一款融合了数学运算与肉鸽（Roguelike）元素的数字合成挑战游戏。玩家需要在限定时间内，利用棋盘上的数字通过加、减、乘、除运算合成目标数字。
 
-View your app in AI Studio: https://ai.studio/apps/6dafacd3-2949-4527-b72d-5ffd5813bb8f
+### 核心玩法
 
-## Run Locally
+- **目标合成**: 使用棋盘上的数字和运算符，计算出目标数字
+- **时间挑战**: 在倒计时结束前达成目标，挑战你的反应速度
+- **道具系统**: 通过抽卡获得各种道具，帮助你化解僵局
+- **难度递进**: 随着分数提升，目标和时间会越来越具挑战性
+- **全球排行榜**: 与全世界的玩家一较高下
 
-**Prerequisites:**  Node.js
+### 游戏特色
+
+- 6种难度等级（EASY → LEGEND）
+- 丰富的道具系统（数字工具、加时工具、刷新令牌、金币）
+- 随机事件（时间惩罚、道具丢失、猎狗攻击）
+- 连击加分机制
+- 中英文双语支持
+
+## 在线游玩
+
+游戏地址：[ff24challenge.com]
+
+## 本地运行
+
+```bash
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
+
+# 构建生产版本
+npm run build
+```
+
+## 技术栈
+
+- React 19
+- Vite 6
+- TypeScript
+- Framer Motion
+- Tailwind CSS
+- Supabase (排行榜)
+
+## 游戏规则
+
+1. 点击选择一个数字
+2. 点击选择一个运算符
+3. 点击选择另一个数字
+4. 系统会计算结果并显示
+5. 如果结果等于目标数字则挑战成功
+
+### 运算符说明
+
+| 运算符 | 说明 |
+|--------|------|
+| + | 加法 |
+| - | 减法（不能为负数） |
+| × | 乘法 |
+| ÷ | 除法（必须整除） |
 
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+
+## 许可证
+
+MIT License

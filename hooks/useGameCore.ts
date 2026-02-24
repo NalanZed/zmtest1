@@ -325,8 +325,8 @@ export function useGameCore(t: Translations) {
             if (!prev) return null;
             // 恢复棋盘数字到目标出现时的状态
             const newGrid = JSON.parse(JSON.stringify(prev.levelStartState!.grid));
-            // 只恢复数字工具，不恢复加时和刷新道具（这些道具使用后不可恢复）
-            const restoredStorage = Array(GAME_PARAMS.STORAGE_SIZE).fill(null);
+            // 从当前储物格中保留非数字道具（加时、刷新、幸运礼包），只恢复数字工具
+            const restoredStorage = [...prev.storage];
             const savedStorage = prev.levelStartState!.storage;
             for (let i = 0; i < savedStorage.length; i++) {
                 const savedItem = savedStorage[i];

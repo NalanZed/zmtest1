@@ -279,6 +279,7 @@ const App: React.FC = () => {
       <PauseModal
         isOpen={isPauseModalOpen}
         onContinue={() => { setIsPauseModalOpen(false); game.setGameState(p => p ? ({ ...p, isPaused: false }) : null); }}
+        onSettle={() => { setIsPauseModalOpen(false); game.setGameState(p => p ? ({ ...p, isPaused: false, isGameOver: true }) : null); }}
         onBackToHome={() => { setIsPauseModalOpen(false); setCurrentView('home'); game.setGameState(null); }}
         t={t}
       />

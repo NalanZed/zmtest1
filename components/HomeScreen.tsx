@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Language, Translations } from '../i18n';
+import FeedbackModal from './FeedbackModal';
 
 interface HomeScreenProps {
     personalHighScore: number;
@@ -10,10 +11,11 @@ interface HomeScreenProps {
     t: Translations;
     onStartGame: () => void;
     onShowLeaderboard: () => void;
+    onShowFeedback: () => void;
 }
 
 const HomeScreen: React.FC<HomeScreenProps> = ({
-    personalHighScore, language, onLanguageToggle, onShowTutorial, t, onStartGame, onShowLeaderboard
+    personalHighScore, language, onLanguageToggle, onShowTutorial, t, onStartGame, onShowLeaderboard, onShowFeedback
 }) => (
     <div className="h-dvh flex flex-col items-center justify-center bg-[#FDFDFD] p-8 text-center safe-top safe-bottom overflow-hidden relative">
         <div className="absolute top-8 right-8 z-20 flex gap-2">
@@ -82,6 +84,15 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                 >
                     {t.leaderboard}
                 </motion.button>
+
+                <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={onShowFeedback}
+                    className="w-full py-5 bg-white text-[#1E293B] rounded-[32px] font-black text-xl shadow-sm border border-gray-100 active:bg-gray-50 transition-all"
+                >
+                    {t.feedback}
+                </motion.button>
             </div>
         </div>
 
@@ -89,7 +100,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="absolute bottom-12 text-[10px] text-gray-300 font-bold uppercase tracking-widest"
+            className="absolute bottom-8 text-[10px] text-gray-300 font-bold uppercase tracking-widest"
         >
             Powered by Gemini &amp; Supabase
         </motion.div>

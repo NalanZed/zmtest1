@@ -14,6 +14,7 @@ import { useLeaderboard } from './hooks/useLeaderboard';
 
 // Components
 import HomeScreen from './components/HomeScreen';
+import FeedbackModal from './components/FeedbackModal';
 import GameBoard from './components/GameBoard';
 import TargetCard from './components/TargetCard';
 import StorageBar from './components/StorageBar';
@@ -34,6 +35,7 @@ const App: React.FC = () => {
   const [personalHighScore, setPersonalHighScore] = useState(0);
   const [username, setUsername] = useState('');
   const [isPauseModalOpen, setIsPauseModalOpen] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const t = TRANSLATIONS[language];
 
@@ -233,8 +235,10 @@ const App: React.FC = () => {
             setCurrentView('game');
           }}
           onShowLeaderboard={() => setShowLeaderboard(true)}
+          onShowFeedback={() => setShowFeedback(true)}
         />
         {FEATURES.LEADERBOARD && <LeaderboardOverlay isOpen={showLeaderboard} leaderboard={leaderboard} onClose={() => setShowLeaderboard(false)} t={t} />}
+        <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} t={t} />
       </>
     );
   }

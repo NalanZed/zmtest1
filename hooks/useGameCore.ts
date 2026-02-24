@@ -235,11 +235,6 @@ export function useGameCore(t: Translations) {
 
                 let newSelectedNum: Position | null = null;
                 if (!isMatch) {
-                    const gridNumsCount = processedGrid.reduce((acc, col) => acc + col.filter(c => c?.type === 'number').length, 0);
-                    const storageNumsCount = newStorage.filter(s => s?.type === 'number').length;
-                    if (gridNumsCount + storageNumsCount < 2) {
-                        setTimeout(() => setGameState(s => s ? { ...s, isGameOver: true } : null), 1200);
-                    }
                     if (numPos2.source === 'grid') {
                         const rIdx = processedGrid[numPos2.col].findIndex(cell => cell?.id === resultId);
                         if (rIdx !== -1) newSelectedNum = { col: numPos2.col, row: rIdx, source: 'grid' };
@@ -326,16 +321,29 @@ export function useGameCore(t: Translations) {
 
     const resetLevel = useCallback(() => {
         if (!gameState?.levelStartState) return;
-        setGameState(prev => prev ? ({
-            ...prev,
-            grid: JSON.parse(JSON.stringify(prev.levelStartState!.grid)),
-            // 恢复道具栏中的数字工具到目标出现时的状态
-            storage: JSON.parse(JSON.stringify(prev.levelStartState!.storage)),
-            numbersUsed: prev.levelStartState!.numbersUsed,
-            selectedNum: null,
-            selectedOp: null,
-            combo: 0
-        }) : null);
+        setGameState(prev => {
+            if (!prev) return null;
+            // 恢复棋盘数字到目标出现时的状态
+            const newGrid = JSON.parse(JSON.stringify(prev.levelStartState!.grid));
+            // 只恢复数字工具，不恢复加时和刷新道具（这些道具使用后不可恢复）
+            const restoredStorage = Array(GAME_PARAMS.STORAGE_SIZE).fill(null);
+            const savedStorage = prev.levelStartState!.storage;
+            for (let i = 0; i < savedStorage.length; i++) {
+                const savedItem = savedStorage[i];
+                if (savedItem && savedItem.type === 'number') {
+                    restoredStorage[i] = savedItem;
+                }
+            }
+            return {
+                ...prev,
+                grid: newGrid,
+                storage: restoredStorage,
+                numbersUsed: prev.levelStartState!.numbersUsed,
+                selectedNum: null,
+                selectedOp: null,
+                combo: 0
+            };
+        });
     }, [gameState?.levelStartState]);
 
     // 刷新目标数字（用简单的目标替换）

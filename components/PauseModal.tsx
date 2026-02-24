@@ -5,11 +5,12 @@ import { Translations } from '../i18n';
 interface PauseModalProps {
     isOpen: boolean;
     onContinue: () => void;
+    onSettle: () => void;
     onBackToHome: () => void;
     t: Translations;
 }
 
-const PauseModal: React.FC<PauseModalProps> = ({ isOpen, onContinue, onBackToHome, t }) => (
+const PauseModal: React.FC<PauseModalProps> = ({ isOpen, onContinue, onSettle, onBackToHome, t }) => (
     <AnimatePresence>
         {isOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[4500] bg-black/40 ios-blur flex items-center justify-center p-6">
@@ -21,6 +22,12 @@ const PauseModal: React.FC<PauseModalProps> = ({ isOpen, onContinue, onBackToHom
                             className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold active:scale-95 shadow-lg shadow-blue-500/20"
                         >
                             {t.continue_game}
+                        </button>
+                        <button
+                            onClick={onSettle}
+                            className="w-full py-4 bg-orange-500 text-white rounded-2xl font-bold active:scale-95 shadow-lg shadow-orange-500/20"
+                        >
+                            {t.settle_game}
                         </button>
                         <button
                             onClick={onBackToHome}

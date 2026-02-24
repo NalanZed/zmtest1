@@ -1,9 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { FEATURES } from './featureFlags';
 import { TRANSLATIONS, Language } from './i18n';
 import { GAME_PARAMS, ITEM_CONFIG, getTimerMultiplier, DIFFICULTY_BANNER_CONFIG } from './gameConfig';
+import { userAnalytics } from './services/userAnalytics';
 
 // Hooks
 import { useGameCore } from './hooks/useGameCore';
@@ -55,8 +56,25 @@ const App: React.FC = () => {
     isActive: timerActive,
     duration: timerDuration,
     resetKey: game.gameState?.totalTargetsCleared,
-    onTimeUp: () => game.setGameState(g => g ? { ...g, isGameOver: true } : null)
+    onTimeUp: () => {
+      gameStatsRef.current.endReason = 'time_up';
+      game.setGameState(g => g ? { ...g, isGameOver: true } : null);
+    }
   });
+
+  // Track game stats for analytics
+  const gameStatsRef = useRef({ highestCombo: 0, highestDifficulty: 0, endReason: 'settle' as 'settle' | 'time_up' });
+
+  // Update highest combo and difficulty during gameplay
+  useEffect(() => {
+    if (!game.gameState || game.gameState.isGameOver) return;
+    if (game.gameState.combo > gameStatsRef.current.highestCombo) {
+      gameStatsRef.current.highestCombo = game.gameState.combo;
+    }
+    if (game.gameState.currentTarget && game.gameState.currentTarget.diff > gameStatsRef.current.highestDifficulty) {
+      gameStatsRef.current.highestDifficulty = game.gameState.currentTarget.diff;
+    }
+  }, [game.gameState?.combo, game.gameState?.currentTarget?.diff, game.gameState?.isGameOver]);
 
   // Persist language
   useEffect(() => { localStorage.setItem('game_lang', language); }, [language]);
@@ -201,6 +219,11 @@ const App: React.FC = () => {
           }}
           t={t}
           onStartGame={() => {
+            // Reset game stats for new session
+            gameStatsRef.current = { highestCombo: 0, highestDifficulty: 0 };
+            // Start analytics session
+            userAnalytics.startGameSession();
+
             const hasVisited = localStorage.getItem('quest_visited');
             if (!hasVisited && FEATURES.TUTORIAL) {
               game.startTutorial();
@@ -297,12 +320,31 @@ const App: React.FC = () => {
         username={username}
         onUsernameChange={setUsername}
         onSaveAndHome={() => {
+          // End analytics session
+          userAnalytics.endGameSession({
+            score: game.gameState!.score,
+            targetsCleared: game.gameState!.totalTargetsCleared,
+            highestCombo: gameStatsRef.current.highestCombo,
+            highestDifficulty: gameStatsRef.current.highestDifficulty,
+            endReason: 'settle',
+          });
           updateHighScore(game.gameState!.score);
           if (FEATURES.LEADERBOARD) submitScore(username, game.gameState!.score);
           setCurrentView('home');
         }}
         onPlayAgain={() => {
+          // End analytics session then restart
+          userAnalytics.endGameSession({
+            score: game.gameState!.score,
+            targetsCleared: game.gameState!.totalTargetsCleared,
+            highestCombo: gameStatsRef.current.highestCombo,
+            highestDifficulty: gameStatsRef.current.highestDifficulty,
+            endReason: 'settle',
+          });
           updateHighScore(game.gameState!.score);
+          // Reset stats and start new session
+          gameStatsRef.current = { highestCombo: 0, highestDifficulty: 0 };
+          userAnalytics.startGameSession();
           game.resetGame();
         }}
         t={t}
